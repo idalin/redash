@@ -19,15 +19,16 @@ const EditVisualizationDialog = {
     this.visualization = copy(this.originalVisualization);
     this.visTypes = Visualization.visualizationTypes;
 
-    this.newVisualization = () =>
-       ({
-         type: Visualization.defaultVisualization.type,
-         name: Visualization.defaultVisualization.name,
-         description: '',
-         options: Visualization.defaultVisualization.defaultOptions,
-       })
-    ;
+    // Don't allow to change type after creating visualization
+    this.canChangeType = !(this.visualization && this.visualization.id);
 
+    this.newVisualization = () =>
+      ({
+        type: Visualization.defaultVisualization.type,
+        name: Visualization.defaultVisualization.name,
+        description: '',
+        options: Visualization.defaultVisualization.defaultOptions,
+      });
     if (!this.visualization) {
       this.visualization = this.newVisualization();
     }
@@ -88,6 +89,6 @@ const EditVisualizationDialog = {
   },
 };
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.component('editVisualizationDialog', EditVisualizationDialog);
 }

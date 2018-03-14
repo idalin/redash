@@ -205,7 +205,8 @@ class BigQuery(BaseQueryRunner):
 
         data = {
             "columns": columns,
-            "rows": rows
+            "rows": rows, 
+            'metadata': {'data_scanned': int(query_reply['totalBytesProcessed'])}
         }
 
         return data
@@ -224,7 +225,14 @@ class BigQuery(BaseQueryRunner):
             for table in tables.get('tables', []):
                 table_data = service.tables().get(projectId=project_id, datasetId=dataset_id, tableId=table['tableReference']['tableId']).execute()
 
-                schema.append({'name': table_data['id'], 'columns': map(lambda r: r['name'], table_data['schema']['fields'])})
+                columns = []
+                for column in table_data['schema']['fields']:
+                    if column['type'] == 'RECORD':
+                        for field in column['fields']:
+                            columns.append(u"{}.{}".format(column['name'], field['name']))
+                    else:
+                        columns.append(column['name'])
+                schema.append({'name': table_data['id'], 'columns': columns})
 
         return schema
 
@@ -245,7 +253,7 @@ class BigQuery(BaseQueryRunner):
             error = None
 
             json_data = json.dumps(data, cls=JSONEncoder)
-        except apiclient.errors.HttpError, e:
+        except apiclient.errors.HttpError as e:
             json_data = None
             if e.resp.status == 400:
                 error = json.loads(e.content)['error']['message']

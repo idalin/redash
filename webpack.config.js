@@ -1,28 +1,47 @@
 /* eslint-disable */
 
-var webpack = require('webpack');
-var HtmlWebpackPlugin = require('html-webpack-plugin');
-var ExtractTextPlugin = require("extract-text-webpack-plugin");
-var WebpackBuildNotifierPlugin = require('webpack-build-notifier');
-var path = require('path');
+const fs = require('fs');
+const webpack = require('webpack');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const ExtractTextPlugin = require("extract-text-webpack-plugin");
+const WebpackBuildNotifierPlugin = require('webpack-build-notifier');
+const ManifestPlugin = require('webpack-manifest-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
+const LessPluginAutoPrefix = require('less-plugin-autoprefix');
+const path = require('path');
 
-var redashBackend = process.env.REDASH_BACKEND || 'http://localhost:5000';
+const redashBackend = process.env.REDASH_BACKEND || 'http://localhost:5000';
 
-var config = {
+const basePath = fs.realpathSync(path.join(__dirname, 'client'));
+const appPath = fs.realpathSync(path.join(__dirname, 'client', 'app'));
+
+const config = {
   entry: {
-    app: './client/app/index.js'
+    app: [
+      './client/app/index.js',
+      './client/app/assets/less/main.less',
+    ],
+    server: [
+      './client/app/assets/less/server.less',
+    ],
   },
   output: {
-    path: path.join(__dirname, 'client', 'dist'),
+    path: path.join(basePath, './dist'),
     filename: '[name].js',
-    publicPath: '/'
+    publicPath: '/static/'
   },
-
+  resolve: {
+    alias: {
+      '@': appPath
+    }
+  },
   plugins: [
     new WebpackBuildNotifierPlugin({title: 'Redash'}),
     new webpack.DefinePlugin({
       ON_TEST: process.env.NODE_ENV === 'test'
     }),
+    // Enforce angular to use jQuery instead of jqLite
+    new webpack.ProvidePlugin({'window.jQuery': 'jquery'}),
     new webpack.optimize.CommonsChunkPlugin({
       name: 'vendor',
       minChunks: function (module, count) {
@@ -43,15 +62,26 @@ var config = {
       chunks: ['vendor']
     }),
     new HtmlWebpackPlugin({
-      template: './client/app/index.html'
+      template: './client/app/index.html',
+      filename: 'index.html',
+      excludeChunks: ['server'],
     }),
     new HtmlWebpackPlugin({
       template: './client/app/multi_org.html',
-      filename: 'multi_org.html'
+      filename: 'multi_org.html',
+      excludeChunks: ['server'],
     }),
     new ExtractTextPlugin({
-      filename: 'styles.[chunkhash].css'
-    })
+      filename: '[name].[chunkhash].css',
+    }),
+    new ManifestPlugin({
+      fileName: 'asset-manifest.json'
+    }),
+    new CopyWebpackPlugin([
+      { from: 'client/app/assets/robots.txt' },
+      { from: 'client/app/assets/css/login.css', to: 'styles/login.css' },
+      { from: 'node_modules/jquery/dist/jquery.min.js', to: 'js/jquery.min.js' },
+    ])
   ],
 
   module: {
@@ -78,7 +108,7 @@ var config = {
         }])
       },
       {
-        test: /\.scss$/,
+        test: /\.less$/,
         use: ExtractTextPlugin.extract([
           {
             loader: 'css-loader',
@@ -86,17 +116,23 @@ var config = {
               minimize: process.env.NODE_ENV === 'production'
             }
           }, {
-            loader: 'sass-loader'
+            loader: 'less-loader',
+            options: {
+              plugins: [
+                new LessPluginAutoPrefix({browsers: ['last 3 versions']})
+              ]
+            }
           }
         ])
       },
       {
         test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
         use: [{
-          loader: 'url-loader',
+          loader: 'file-loader',
           options: {
-            limit: 10000,
-            name: 'img/[name].[hash:7].[ext]'
+            context: path.resolve(appPath, './assets/images/'),
+            outputPath: 'images/',
+            name: '[path][name].[ext]',
           }
         }]
       },
@@ -113,48 +149,43 @@ var config = {
     ]
   },
   devtool: 'cheap-eval-module-source-map',
+  stats: {
+    modules: false,
+    chunkModules: false,
+  },
+  watchOptions: {
+    ignored: /\.sw.$/,
+  },
   devServer: {
     inline: true,
-    historyApiFallback: true,
-    contentBase: path.join(__dirname, 'client', 'app'),
-    proxy: {
-      '/login': {
+    index: '/static/index.html',
+    historyApiFallback: {
+      index: '/static/index.html',
+      rewrites: [{from: /./, to: '/static/index.html'}],
+    },
+    contentBase: false,
+    publicPath: '/static/',
+    proxy: [
+      {
+        context: ['/login', '/logout', '/invite', '/setup', '/status.json', '/api', '/oauth'],
         target: redashBackend + '/',
-        secure: false
+        changeOrigin: true,
+        secure: false,
       },
-      '/invite': {
+      {
+        context: (path) => {
+          // CSS/JS for server-rendered pages should be served from backend
+          return /^\/static\/[a-z]+\.[0-9a-fA-F]+\.(css|js)$/.test(path);
+        },
         target: redashBackend + '/',
-        secure: false
-      },
-      '/setup': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/images': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/js': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/styles': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/status.json': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/api/admin': {
-        target: redashBackend + '/',
-        secure: false
-      },
-      '/api': {
-        target: redashBackend,
-        secure: false
+        changeOrigin: true,
+        secure: false,
       }
-    }
+    ],
+    stats: {
+      modules: false,
+      chunkModules: false,
+    },
   }
 };
 
@@ -163,7 +194,6 @@ if (process.env.DEV_SERVER_HOST) {
 }
 
 if (process.env.NODE_ENV === 'production') {
-  config.output.path = __dirname + '/client/dist';
   config.output.filename = '[name].[chunkhash].js';
   config.plugins.push(new webpack.optimize.UglifyJsPlugin({
     sourceMap: true,

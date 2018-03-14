@@ -6,15 +6,14 @@ import time
 import pystache
 import redis
 
-from celery.exceptions import SoftTimeLimitExceeded
+from celery.exceptions import SoftTimeLimitExceeded, TimeLimitExceeded
 from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 from redash import models, redis_connection, settings, statsd_client, utils
 from redash.query_runner import InterruptException
 from redash.utils import gen_query_hash
 from redash.worker import celery
-
-from .alerts import check_alerts_for_query
+from redash.tasks.alerts import check_alerts_for_query
 
 logger = get_task_logger(__name__)
 
@@ -167,7 +166,10 @@ class QueryTask(object):
 
         status = self.STATUSES[task_status]
 
-        if isinstance(result, Exception):
+        if isinstance(result, (TimeLimitExceeded, SoftTimeLimitExceeded)):
+            error = "Query exceeded Redash query execution time limit."
+            status = 4
+        elif isinstance(result, Exception):
             error = result.message
             status = 4
         elif task_status == 'REVOKED':
@@ -229,15 +231,19 @@ def enqueue_query(query, data_source, user_id, scheduled_query=None, metadata={}
             if not job:
                 pipe.multi()
 
+                time_limit = None
+
                 if scheduled_query:
                     queue_name = data_source.scheduled_queue_name
                     scheduled_query_id = scheduled_query.id
                 else:
                     queue_name = data_source.queue_name
                     scheduled_query_id = None
+                    time_limit = settings.ADHOC_QUERY_TIME_LIMIT
 
                 result = execute_query.apply_async(args=(query, data_source.id, metadata, user_id, scheduled_query_id),
-                                                   queue=queue_name)
+                                                   queue=queue_name,
+                                                   time_limit=time_limit)
                 job = QueryTask(async_result=result)
                 tracker = QueryTaskTracker.create(
                     result.id, 'created', query_hash, data_source.id,
@@ -269,12 +275,13 @@ def refresh_queries():
         for query in models.Query.outdated_queries():
             if settings.FEATURE_DISABLE_REFRESH_QUERIES:
                 logging.info("Disabled refresh queries.")
+            elif query.org.is_disabled:
+                logging.info("Skipping refresh of %s because org is disabled.", query.id)
             elif query.data_source is None:
                 logging.info("Skipping refresh of %s because the datasource is none.", query.id)
             elif query.data_source.paused:
                 logging.info("Skipping refresh of %s because datasource - %s is paused (%s).", query.id, query.data_source.name, query.data_source.pause_reason)
             else:
-                # if query.options and 'parameters' in query.options and len(query.options['parameters']) > 0:
                 if query.options and len(query.options.get('parameters', [])) > 0:
                     query_params = {p['name']: p['value']
                                     for p in query.options['parameters']}
@@ -385,6 +392,8 @@ def refresh_schemas():
             logger.info(u"task=refresh_schema state=skip ds_id=%s reason=paused(%s)", ds.id, ds.pause_reason)
         elif ds.id in blacklist:
             logger.info(u"task=refresh_schema state=skip ds_id=%s reason=blacklist", ds.id)
+        elif ds.org.is_disabled:
+            logger.info(u"task=refresh_schema state=skip ds_id=%s reason=org_disabled", ds.id)
         else:
             refresh_schema.apply_async(args=(ds.id,), queue="schemas")
 
@@ -413,6 +422,8 @@ class QueryExecutor(object):
             self.user = models.User.query.get(user_id)
         else:
             self.user = None
+        # Close DB connection to prevent holding a connection for a long time while the query is executing.
+        models.db.session.close()
         self.query_hash = gen_query_hash(self.query)
         self.scheduled_query = scheduled_query
         # Load existing tracker or create a new one if the job was created before code update:
@@ -451,16 +462,17 @@ class QueryExecutor(object):
         if error:
             self.tracker.update(state='failed')
             result = QueryExecutionError(error)
+            self.scheduled_query = models.db.session.merge(self.scheduled_query, load=False)
             if self.scheduled_query:
                 self.scheduled_query.schedule_failures += 1
                 models.db.session.add(self.scheduled_query)
         else:
-            if (self.scheduled_query and
-                    self.scheduled_query.schedule_failures > 0):
+            if (self.scheduled_query and self.scheduled_query.schedule_failures > 0):
+                self.scheduled_query = models.db.session.merge(self.scheduled_query, load=False)
                 self.scheduled_query.schedule_failures = 0
                 models.db.session.add(self.scheduled_query)
             query_result, updated_query_ids = models.QueryResult.store_result(
-                self.data_source.org, self.data_source,
+                self.data_source.org_id, self.data_source,
                 self.query_hash, self.query, data,
                 run_time, utils.utcnow())
             self._log_progress('checking_alerts')

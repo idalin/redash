@@ -1,6 +1,6 @@
 import debug from 'debug';
 import moment from 'moment';
-import { uniq, contains, values, some, each, isArray, isNumber, isString, includes } from 'underscore';
+import { sortBy, uniq, contains, values, some, each, isArray, isNumber, isString, includes } from 'underscore';
 
 const logger = debug('redash:services:QueryResult');
 const filterTypes = ['filter', 'multi-filter', 'multiFilter'];
@@ -31,14 +31,12 @@ function getColumnNameWithoutType(column) {
 }
 
 export function getColumnCleanName(column) {
-  const name = getColumnNameWithoutType(column);
-  return name;
+  return getColumnNameWithoutType(column);
 }
 
 function getColumnFriendlyName(column) {
   return getColumnNameWithoutType(column).replace(/(?:^|\s)\S/g, a =>
-     a.toUpperCase()
-  );
+    a.toUpperCase());
 }
 
 function addPointToSeries(point, seriesCollection, seriesName) {
@@ -121,6 +119,7 @@ function QueryResultService($resource, $timeout, $q) {
         });
 
         each(this.query_result.data.columns, (column) => {
+          column.name = '' + column.name;
           if (columnTypes[column.name]) {
             if (column.type == null || column.type === 'string') {
               column.type = columnTypes[column.name];
@@ -184,9 +183,7 @@ function QueryResultService($resource, $timeout, $q) {
         return null;
       }
 
-      const data = this.query_result.data.rows;
-
-      return data;
+      return this.query_result.data.rows;
     }
 
     getData() {
@@ -199,9 +196,11 @@ function QueryResultService($resource, $timeout, $q) {
           return null;
         }
 
-        return filters.reduce((str, filter) =>
-           str + filter.current
-        , '');
+        return filters.reduce(
+          (str, filter) =>
+            str + filter.current
+          , '',
+        );
       }
 
       const filters = this.getFilters();
@@ -213,36 +212,30 @@ function QueryResultService($resource, $timeout, $q) {
         if (filters) {
           filters.forEach((filter) => {
             if (filter.multiple && includes(filter.current, ALL_VALUES)) {
-              filter.current = filter.values.slice(1);
-            }
-
-            if (filter.current.length === (filter.values.length - 1)) {
-              filter.values[0] = NONE_VALUES;
+              filter.current = filter.values.slice(2);
             }
 
             if (filter.multiple && includes(filter.current, NONE_VALUES)) {
               filter.current = [];
-              filter.values[0] = ALL_VALUES;
             }
           });
 
           this.filteredData = this.query_result.data.rows.filter(row =>
-             filters.reduce((memo, filter) => {
-               if (!isArray(filter.current)) {
-                 filter.current = [filter.current];
-               }
+            filters.reduce((memo, filter) => {
+              if (!isArray(filter.current)) {
+                filter.current = [filter.current];
+              }
 
-               return (memo && some(filter.current, (v) => {
-                 const value = row[filter.name];
-                 if (moment.isMoment(value)) {
-                   return value.isSame(v);
-                 }
-                 // We compare with either the value or the String representation of the value,
-                 // because Select2 casts true/false to "true"/"false".
-                 return (v === value || String(value) === v);
-               }));
-             }, true)
-          );
+              return (memo && some(filter.current, (v) => {
+                const value = row[filter.name];
+                if (moment.isMoment(value)) {
+                  return value.isSame(v);
+                }
+                // We compare with either the value or the String representation of the value,
+                // because Select2 casts true/false to "true"/"false".
+                return (v === value || String(value) === v);
+              }));
+            }, true));
         } else {
           this.filteredData = this.query_result.data.rows;
         }
@@ -267,12 +260,11 @@ function QueryResultService($resource, $timeout, $q) {
         let sizeValue = null;
 
         each(row, (v, definition) => {
-          const name = definition.split('::')[0] || definition.split('__')[0];
+          definition = '' + definition;
+          const definitionParts = definition.split('::') || definition.split('__');
+          const name = definitionParts[0];
+          const type = mapping ? mapping[definition] : definitionParts[1];
           let value = v;
-          let type = definition.split('::')[1] || definition.split('__')[1];
-          if (mapping) {
-            type = mapping[definition];
-          }
 
           if (type === 'unused') {
             return;
@@ -324,7 +316,7 @@ function QueryResultService($resource, $timeout, $q) {
           addPointToSeries(point, series, seriesName);
         }
       });
-      return values(series);
+      return sortBy(values(series), 'name');
     }
 
     getColumns() {
@@ -399,6 +391,7 @@ function QueryResultService($resource, $timeout, $q) {
       filters.forEach((filter) => {
         if (filter.multiple) {
           filter.values.unshift(ALL_VALUES);
+          filter.values.unshift(NONE_VALUES);
         }
       });
 
@@ -429,7 +422,8 @@ function QueryResultService($resource, $timeout, $q) {
     }
 
     loadResult(tryCount) {
-      QueryResultResource.get({ id: this.job.query_result_id },
+      QueryResultResource.get(
+        { id: this.job.query_result_id },
         (response) => {
           this.update(response);
         },
@@ -451,7 +445,7 @@ function QueryResultService($resource, $timeout, $q) {
               this.loadResult(tryCount + 1);
             }, 1000 * Math.pow(2, tryCount));
           }
-        }
+        },
       );
     }
 
@@ -518,6 +512,6 @@ function QueryResultService($resource, $timeout, $q) {
   return QueryResult;
 }
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.factory('QueryResult', QueryResultService);
 }

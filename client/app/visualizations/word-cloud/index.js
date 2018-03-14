@@ -44,12 +44,12 @@ function wordCloudRenderer() {
 
         const fill = d3.scale.category20();
         const layout = cloud()
-            .size([500, 500])
-            .words(wordList)
-            .padding(5)
-            .rotate(() => Math.floor(Math.random() * 2) * 90)
-            .font('Impact')
-            .fontSize(d => d.size);
+          .size([500, 500])
+          .words(wordList)
+          .padding(5)
+          .rotate(() => Math.floor(Math.random() * 2) * 90)
+          .font('Impact')
+          .fontSize(d => d.size);
 
         function draw(words) {
           d3.select(elem[0].parentNode)
@@ -58,22 +58,21 @@ function wordCloudRenderer() {
 
           d3.select(elem[0].parentNode)
             .append('svg')
-              .attr('width', layout.size()[0])
-              .attr('height', layout.size()[1])
+            .attr('width', layout.size()[0])
+            .attr('height', layout.size()[1])
             .append('g')
-              .attr('transform', `translate(${layout.size()[0] / 2},${layout.size()[1] / 2})`)
+            .attr('transform', `translate(${layout.size()[0] / 2},${layout.size()[1] / 2})`)
             .selectAll('text')
-              .data(words)
+            .data(words)
             .enter()
             .append('text')
-              .style('font-size', d => `${d.size}px`)
-              .style('font-family', 'Impact')
-              .style('fill', (d, i) => fill(i))
-              .attr('text-anchor', 'middle')
-              .attr('transform', d =>
-                 `translate(${[d.x, d.y]})rotate(${d.rotate})`
-              )
-              .text(d => d.text);
+            .style('font-size', d => `${d.size}px`)
+            .style('font-family', 'Impact')
+            .style('fill', (d, i) => fill(i))
+            .attr('text-anchor', 'middle')
+            .attr('transform', d =>
+              `translate(${[d.x, d.y]})rotate(${d.rotate})`)
+            .text(d => d.text);
         }
 
         layout.on('end', draw);
@@ -94,9 +93,13 @@ function wordCloudEditor() {
   };
 }
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.directive('wordCloudEditor', wordCloudEditor);
   ngModule.directive('wordCloudRenderer', wordCloudRenderer);
+
+  const defaultOptions = {
+    defaultRows: -1,
+  };
 
   ngModule.config((VisualizationProvider) => {
     VisualizationProvider.registerVisualization({
@@ -104,6 +107,7 @@ export default function (ngModule) {
       name: 'Word Cloud',
       renderTemplate: '<word-cloud-renderer options="visualization.options" query-result="queryResult"></word-cloud-renderer>',
       editorTemplate: '<word-cloud-editor></word-cloud-editor>',
+      defaultOptions,
     });
   });
 }

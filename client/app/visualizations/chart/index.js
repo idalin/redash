@@ -1,5 +1,7 @@
-import { some, extend, has, partial, intersection, without, contains, isUndefined, sortBy, each, pluck, keys, difference } from 'underscore';
-import plotly from './plotly';
+import {
+  some, extend, has, partial, intersection, without, contains, isUndefined,
+  sortBy, each, pluck, keys, difference,
+} from 'underscore';
 import template from './chart.html';
 import editorTemplate from './chart-editor.html';
 
@@ -54,8 +56,7 @@ function ChartEditor(ColorPalette, clientConfig) {
 
       scope.stackingOptions = {
         Disabled: null,
-        Enabled: 'normal',
-        Percent: 'percent',
+        Stack: 'stack',
       };
 
       scope.changeTab = (tab) => {
@@ -84,6 +85,7 @@ function ChartEditor(ColorPalette, clientConfig) {
           scope.options.seriesOptions[key].type = scope.options.globalSeriesType;
         });
       };
+      scope.chartTypeChanged();
 
       scope.showSizeColumnPicker = () => some(scope.options.seriesOptions, options => options.type === 'bubble');
 
@@ -164,8 +166,7 @@ function ChartEditor(ColorPalette, clientConfig) {
       scope.form = {
         yAxisColumns: [],
         seriesList: sortBy(keys(scope.options.seriesOptions), name =>
-           scope.options.seriesOptions[name].zIndex
-        ),
+          scope.options.seriesOptions[name].zIndex),
       };
 
       scope.$watchCollection('form.seriesList', (value) => {
@@ -220,10 +221,6 @@ function ChartEditor(ColorPalette, clientConfig) {
         scope.options.legend = { enabled: true };
       }
 
-      if (!has(scope.options, 'bottomMargin')) {
-        scope.options.bottomMargin = 50;
-      }
-
       if (scope.columnNames) {
         each(scope.options.columnMapping, (value, key) => {
           if (scope.columnNames.length > 0 && !contains(scope.columnNames, key)) {
@@ -253,7 +250,7 @@ const ColorBox = {
   template: "<span style='width: 12px; height: 12px; background-color: {{$ctrl.color}}; display: inline-block; margin-right: 5px;'></span>",
 };
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.component('colorBox', ColorBox);
   ngModule.directive('chartRenderer', ChartRenderer);
   ngModule.directive('chartEditor', ChartEditor);
@@ -271,7 +268,10 @@ export default function (ngModule) {
       series: { stacking: null, error_y: { type: 'data', visible: true } },
       seriesOptions: {},
       columnMapping: {},
-      bottomMargin: 50,
+      defaultColumns: 3,
+      defaultRows: 8,
+      minColumns: 1,
+      minRows: 5,
     };
 
     VisualizationProvider.registerVisualization({
@@ -282,5 +282,4 @@ export default function (ngModule) {
       defaultOptions,
     });
   });
-  plotly(ngModule);
 }

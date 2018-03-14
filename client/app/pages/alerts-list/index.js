@@ -1,4 +1,4 @@
-import { Paginator } from '../../utils';
+import { Paginator } from '@/lib/pagination';
 import template from './alerts-list.html';
 
 const stateClass = {
@@ -11,8 +11,17 @@ class AlertsListCtrl {
   constructor(Events, Alert) {
     Events.record('view', 'page', 'alerts');
 
+    this.showEmptyState = false;
+    this.showList = false;
+
     this.alerts = new Paginator([], { itemsPerPage: 20 });
     Alert.query((alerts) => {
+      if (alerts.length > 0) {
+        this.showList = true;
+      } else {
+        this.showEmptyState = true;
+      }
+
       this.alerts.updateRows(alerts.map(alert => ({
         id: alert.id,
         name: alert.name,
@@ -26,7 +35,7 @@ class AlertsListCtrl {
   }
 }
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.component('alertsListPage', {
     template,
     controller: AlertsListCtrl,

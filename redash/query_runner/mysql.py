@@ -115,7 +115,7 @@ class Mysql(BaseSQLQueryRunner):
 
         for row in results['rows']:
             if row['table_schema'] != self.configuration['db']:
-                table_name = '{}.{}'.format(row['table_schema'], row['table_name'])
+                table_name = u'{}.{}'.format(row['table_schema'], row['table_name'])
             else:
                 table_name = row['table_name']
 
@@ -165,6 +165,7 @@ class Mysql(BaseSQLQueryRunner):
             json_data = None
             error = e.args[1]
         except KeyboardInterrupt:
+            cursor.close()
             error = "Query cancelled by user."
             json_data = None
         finally:

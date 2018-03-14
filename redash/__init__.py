@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import urlparse
+import urllib
 import redis
 from flask import Flask, safe_join
 from flask_sslify import SSLify
@@ -18,12 +19,12 @@ from redash.query_runner import import_query_runners
 from redash.destinations import import_destinations
 
 
-__version__ = '3.0.0'
+__version__ = '4.0.0-rc.1'
 
 
 def setup_logging():
     handler = logging.StreamHandler(sys.stdout if settings.LOG_STDOUT else sys.stderr)
-    formatter = logging.Formatter('[%(asctime)s][PID:%(process)d][%(levelname)s][%(name)s] %(message)s')
+    formatter = logging.Formatter(settings.LOG_FORMAT)
     handler.setFormatter(formatter)
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(settings.LOG_LEVEL)
@@ -37,6 +38,7 @@ def setup_logging():
 
 
 def create_redis_connection():
+    logging.debug("Creating Redis connection (%s)", settings.REDIS_URL)
     redis_url = urlparse.urlparse(settings.REDIS_URL)
 
     if redis_url.scheme == 'redis+socket':
@@ -52,8 +54,9 @@ def create_redis_connection():
             redis_db = redis_url.path[1]
         else:
             redis_db = 0
-
-        r = redis.StrictRedis(host=redis_url.hostname, port=redis_url.port, db=redis_db, password=redis_url.password)
+        # Redis passwords might be quoted with special characters
+        redis_password = redis_url.password and urllib.unquote(redis_url.password)
+        r = redis.StrictRedis(host=redis_url.hostname, port=redis_url.port, db=redis_db, password=redis_password)
 
     return r
 
@@ -64,7 +67,7 @@ mail = Mail()
 migrate = Migrate()
 mail.init_mail(settings.all_settings())
 statsd_client = StatsClient(host=settings.STATSD_HOST, port=settings.STATSD_PORT, prefix=settings.STATSD_PREFIX)
-limiter = Limiter(key_func=get_ipaddr, storage_uri=settings.REDIS_URL)
+limiter = Limiter(key_func=get_ipaddr, storage_uri=settings.LIMITER_STORAGE)
 
 import_query_runners(settings.QUERY_RUNNERS)
 import_destinations(settings.DESTINATIONS)
@@ -76,10 +79,10 @@ reset_new_version_status()
 class SlugConverter(BaseConverter):
     def to_python(self, value):
         # This is ay workaround for when we enable multi-org and some files are being called by the index rule:
-        for path in settings.STATIC_ASSETS_PATHS:
-            full_path = safe_join(path, value)
-            if os.path.isfile(full_path):
-                raise ValidationError()
+        # for path in settings.STATIC_ASSETS_PATHS:
+        #     full_path = safe_join(path, value)
+        #     if os.path.isfile(full_path):
+        #         raise ValidationError()
 
         return value
 
@@ -88,15 +91,16 @@ class SlugConverter(BaseConverter):
 
 
 def create_app(load_admin=True):
-    from redash import handlers
+    from redash import extensions, handlers
+    from redash.handlers.webpack import configure_webpack
     from redash.admin import init_admin
     from redash.models import db
     from redash.authentication import setup_authentication
     from redash.metrics.request import provision_app
 
     app = Flask(__name__,
-                template_folder=settings.STATIC_ASSETS_PATHS[0],
-                static_folder=settings.STATIC_ASSETS_PATHS[-1],
+                template_folder=settings.STATIC_ASSETS_PATH,
+                static_folder=settings.STATIC_ASSETS_PATH,
                 static_path='/static')
 
     # Make sure we get the right referral address even behind proxies like nginx.
@@ -132,5 +136,6 @@ def create_app(load_admin=True):
     setup_authentication(app)
     limiter.init_app(app)
     handlers.init_app(app)
-
+    configure_webpack(app)
+    extensions.init_extensions(app)
     return app

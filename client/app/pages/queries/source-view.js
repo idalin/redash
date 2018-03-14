@@ -1,7 +1,9 @@
 import template from './query.html';
 
-function QuerySourceCtrl(Events, toastr, $controller, $scope, $location, $http, $q,
-  AlertDialog, currentUser, Query, Visualization, KeyboardShortcuts) {
+function QuerySourceCtrl(
+  Events, toastr, $controller, $scope, $location, $http, $q,
+  AlertDialog, currentUser, Query, Visualization, KeyboardShortcuts,
+) {
   // extends QueryViewCtrl
   $controller('QueryViewCtrl', { $scope });
   // TODO:
@@ -41,6 +43,8 @@ function QuerySourceCtrl(Events, toastr, $controller, $scope, $location, $http, 
   $scope.$on('$destroy', () => {
     KeyboardShortcuts.unbind(shortcuts);
   });
+
+  $scope.canForkQuery = () => currentUser.hasPermission('edit_query') && !$scope.dataSource.view_only;
 
   // @override
   $scope.saveQuery = (options, data) => {
@@ -102,12 +106,13 @@ function QuerySourceCtrl(Events, toastr, $controller, $scope, $location, $http, 
   });
 }
 
-export default function (ngModule) {
+export default function init(ngModule) {
   ngModule.controller('QuerySourceCtrl', QuerySourceCtrl);
 
   return {
     '/queries/new': {
       template,
+      layout: 'fixed',
       controller: 'QuerySourceCtrl',
       reloadOnSearch: false,
       resolve: {
@@ -125,6 +130,7 @@ export default function (ngModule) {
     },
     '/queries/:queryId/source': {
       template,
+      layout: 'fixed',
       controller: 'QuerySourceCtrl',
       reloadOnSearch: false,
       resolve: {
