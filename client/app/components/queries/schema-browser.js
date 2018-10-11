@@ -23,9 +23,21 @@ function SchemaBrowserCtrl($rootScope, $scope) {
   };
 
   this.itemSelected = ($event, hierarchy) => {
-    $rootScope.$broadcast('query-editor.paste', hierarchy.join('.'));
+    $rootScope.$broadcast('query-editor.command', 'paste', hierarchy.join('.'));
     $event.preventDefault();
     $event.stopPropagation();
+  };
+
+  this.splitFilter = (filter) => {
+    filter = filter.replace(/ {2}/g, ' ');
+    if (filter.includes(' ')) {
+      const splitTheFilter = filter.split(' ');
+      this.schemaFilterObject = { name: splitTheFilter[0], columns: splitTheFilter[1] };
+      this.schemaFilterColumn = splitTheFilter[1];
+    } else {
+      this.schemaFilterObject = filter;
+      this.schemaFilterColumn = '';
+    }
   };
 }
 

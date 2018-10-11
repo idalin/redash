@@ -1,7 +1,7 @@
 import d3 from 'd3';
 import angular from 'angular';
 import cloud from 'd3-cloud';
-import { each } from 'underscore';
+import { each } from 'lodash';
 
 import editorTemplate from './word-cloud-editor.html';
 
@@ -98,7 +98,7 @@ export default function init(ngModule) {
   ngModule.directive('wordCloudRenderer', wordCloudRenderer);
 
   const defaultOptions = {
-    defaultRows: -1,
+    defaultRows: 8,
   };
 
   ngModule.config((VisualizationProvider) => {

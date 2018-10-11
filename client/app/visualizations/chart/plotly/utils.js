@@ -1,9 +1,10 @@
 import {
-  isArray, isNumber, isString, isUndefined, contains, min, max, has, find,
-  each, values, sortBy, pluck, identity, filter, map,
-} from 'underscore';
+  isArray, isNumber, isString, isUndefined, includes, min, max, has, find,
+  each, values, sortBy, identity, filter, map, extend, reduce,
+} from 'lodash';
 import moment from 'moment';
-import createFormatter from '@/lib/value-format';
+import d3 from 'd3';
+import { createFormatter, formatSimpleTemplate } from '@/lib/value-format';
 
 // The following colors will be used if you pick "Automatic" color.
 const BaseColors = {
@@ -33,10 +34,25 @@ export const ColorPalette = Object.assign({}, BaseColors, {
   'Pink 2': '#C63FA9',
 });
 
-const formatNumber = createFormatter({ displayAs: 'number', numberFormat: '0,0[.]00' });
-const formatPercent = createFormatter({ displayAs: 'number', numberFormat: '0[.]00' });
-
 const ColorPaletteArray = values(BaseColors);
+
+function defaultFormatSeriesText(item) {
+  let result = item['@@y'];
+  if (item['@@yError'] !== undefined) {
+    result = `${result} \u00B1 ${item['@@yError']}`;
+  }
+  if (item['@@yPercent'] !== undefined) {
+    result = `${item['@@yPercent']} (${result})`;
+  }
+  if (item['@@size'] !== undefined) {
+    result = `${result}: ${item['@@size']}`;
+  }
+  return result;
+}
+
+function defaultFormatSeriesTextForPie(item) {
+  return item['@@yPercent'] + ' (' + item['@@y'] + ')';
+}
 
 function getFontColor(bgcolor) {
   let result = '#333333';
@@ -69,9 +85,25 @@ function getFontColor(bgcolor) {
   return result;
 }
 
-export function normalizeValue(value) {
+function getPieHoverInfoPattern(options) {
+  const hasX = /{{\s*@@x\s*}}/.test(options.textFormat);
+  let result = 'text';
+  if (!hasX) result += '+label';
+  return result;
+}
+
+function getHoverInfoPattern(options) {
+  const hasX = /{{\s*@@x\s*}}/.test(options.textFormat);
+  const hasName = /{{\s*@@name\s*}}/.test(options.textFormat);
+  let result = 'text';
+  if (!hasX) result += '+x';
+  if (!hasName) result += '+name';
+  return result;
+}
+
+export function normalizeValue(value, dateTimeFormat = 'YYYY-MM-DD HH:mm:ss') {
   if (moment.isMoment(value)) {
-    return value.format('YYYY-MM-DD HH:mm:ss');
+    return value.format(dateTimeFormat);
   }
   return value;
 }
@@ -146,10 +178,12 @@ function calculateDimensions(series, options) {
   const xPadding = 0.02;
   const yPadding = 0.1;
 
-  const hasX = contains(values(options.columnMapping), 'x');
+  const hasX = includes(values(options.columnMapping), 'x');
   const hasY2 = !!find(series, (serie) => {
-    const serieOptions = options.seriesOptions[serie.name] || { type: options.globalSeriesType };
-    return (serieOptions.yAxis === 1) && (options.series.stacking === null);
+    const seriesOptions = options.seriesOptions[serie.name] || { type: options.globalSeriesType };
+    return (seriesOptions.yAxis === 1) && (
+      (options.series.stacking === null) || (seriesOptions.type === 'line')
+    );
   });
 
   return {
@@ -180,16 +214,63 @@ function preparePieData(seriesList, options) {
     cellWidth, cellHeight, xPadding, yPadding, cellsInRow, hasX,
   } = calculateDimensions(seriesList, options);
 
+  const formatNumber = createFormatter({
+    displayAs: 'number',
+    numberFormat: options.numberFormat,
+  });
+  const formatPercent = createFormatter({
+    displayAs: 'number',
+    numberFormat: options.percentFormat,
+  });
+  const formatText = options.textFormat === ''
+    ? defaultFormatSeriesTextForPie :
+    item => formatSimpleTemplate(options.textFormat, item);
+
+  const hoverinfo = getPieHoverInfoPattern(options);
+
+  // we will use this to assign colors for values that have not explicitly set color
+  const getDefaultColor = d3.scale.ordinal().domain([]).range(ColorPaletteArray);
+  const valuesColors = {};
+  each(options.valuesOptions, (item, key) => {
+    if (isString(item.color) && (item.color !== '')) {
+      valuesColors[key] = item.color;
+    }
+  });
+
   return map(seriesList, (serie, index) => {
     const xPosition = (index % cellsInRow) * cellWidth;
     const yPosition = Math.floor(index / cellsInRow) * cellHeight;
+
+    const sourceData = new Map();
+    const seriesTotal = reduce(serie.data, (result, row) => {
+      const y = normalizeValue(row.y);
+      return result + Math.abs(y);
+    }, 0);
+    each(serie.data, (row) => {
+      const x = normalizeValue(row.x);
+      const y = normalizeValue(row.y);
+      sourceData.set(x, {
+        x,
+        y,
+        yPercent: y / seriesTotal * 100,
+        raw: extend({}, row.$raw, {
+          // use custom display format - see also `updateSeriesText`
+          '@@x': normalizeValue(row.x, options.dateTimeFormat),
+        }),
+      });
+    });
+
     return {
-      values: pluck(serie.data, 'y'),
-      labels: map(serie.data, row => (hasX ? row.x : `Slice ${index}`)),
+      values: map(serie.data, i => i.y),
+      labels: map(serie.data, row => (hasX ? normalizeValue(row.x) : `Slice ${index}`)),
       type: 'pie',
       hole: 0.4,
-      marker: { colors: ColorPaletteArray },
-      text: serie.name,
+      marker: {
+        colors: map(serie.data, row => valuesColors[row.x] || getDefaultColor(row.x)),
+      },
+      hoverinfo,
+      text: [],
+      textinfo: options.showDataLabels ? 'percent' : 'none',
       textposition: 'inside',
       textfont: { color: '#ffffff' },
       name: serie.name,
@@ -197,12 +278,30 @@ function preparePieData(seriesList, options) {
         x: [xPosition, xPosition + cellWidth - xPadding],
         y: [yPosition, yPosition + cellHeight - yPadding],
       },
+      sourceData,
+      formatNumber,
+      formatPercent,
+      formatText,
     };
   });
 }
 
 function prepareChartData(seriesList, options) {
   const sortX = (options.sortX === true) || (options.sortX === undefined);
+
+  const formatNumber = createFormatter({
+    displayAs: 'number',
+    numberFormat: options.numberFormat,
+  });
+  const formatPercent = createFormatter({
+    displayAs: 'number',
+    numberFormat: options.percentFormat,
+  });
+  const formatText = options.textFormat === ''
+    ? defaultFormatSeriesText :
+    item => formatSimpleTemplate(options.textFormat, item);
+
+  const hoverinfo = getHoverInfoPattern(options);
 
   return map(seriesList, (series, index) => {
     const seriesOptions = options.seriesOptions[series.name] ||
@@ -221,11 +320,17 @@ function prepareChartData(seriesList, options) {
       const x = normalizeValue(row.x);
       const y = normalizeValue(row.y);
       const yError = normalizeValue(row.yError);
+      const size = normalizeValue(row.size);
       sourceData.set(x, {
         x,
         y,
         yError,
+        size,
         yPercent: null, // will be updated later
+        raw: extend({}, row.$raw, {
+          // use custom display format - see also `updateSeriesText`
+          '@@x': normalizeValue(row.x, options.dateTimeFormat),
+        }),
       });
       xValues.push(x);
       yValues.push(y);
@@ -234,7 +339,7 @@ function prepareChartData(seriesList, options) {
 
     const plotlySeries = {
       visible: true,
-      hoverinfo: 'x+text+name',
+      hoverinfo,
       x: xValues,
       y: yValues,
       error_y: {
@@ -247,9 +352,15 @@ function prepareChartData(seriesList, options) {
         color: getFontColor(seriesColor),
       },
       sourceData,
+      formatNumber,
+      formatPercent,
+      formatText,
     };
 
-    if ((seriesOptions.yAxis === 1) && (options.series.stacking === null)) {
+    if (
+      (seriesOptions.yAxis === 1) &&
+      ((options.series.stacking === null) || (seriesOptions.type === 'line'))
+    ) {
       plotlySeries.yaxis = 'y2';
     }
 
@@ -257,7 +368,7 @@ function prepareChartData(seriesList, options) {
 
     if (seriesOptions.type === 'bubble') {
       plotlySeries.marker = {
-        size: pluck(data, 'size'),
+        size: map(data, i => i.size),
       };
     } else if (seriesOptions.type === 'box') {
       plotlySeries.boxpoints = 'outliers';
@@ -300,21 +411,32 @@ export function prepareLayout(element, seriesList, options, data) {
     height: Math.floor(element.offsetHeight),
     autosize: true,
     showlegend: has(options, 'legend') ? options.legend.enabled : true,
+    legend: {
+      orientation: 'v',
+      x: 1,
+      y: 1,
+    },
   };
 
   if (options.globalSeriesType === 'pie') {
-    result.annotations = filter(map(seriesList, (series, index) => {
-      const xPosition = (index % cellsInRow) * cellWidth;
-      const yPosition = Math.floor(index / cellsInRow) * cellHeight;
-      return {
-        x: xPosition + ((cellWidth - xPadding) / 2),
-        y: yPosition + cellHeight - 0.015,
-        xanchor: 'center',
-        yanchor: 'top',
-        text: series.name,
-        showarrow: false,
-      };
-    }));
+    const hasName = /{{\s*@@name\s*}}/.test(options.textFormat);
+
+    if (hasName) {
+      result.annotations = [];
+    } else {
+      result.annotations = filter(map(seriesList, (series, index) => {
+        const xPosition = (index % cellsInRow) * cellWidth;
+        const yPosition = Math.floor(index / cellsInRow) * cellHeight;
+        return {
+          x: xPosition + ((cellWidth - xPadding) / 2),
+          y: yPosition + cellHeight - 0.015,
+          xanchor: 'center',
+          yanchor: 'top',
+          text: series.name,
+          showarrow: false,
+        };
+      }));
+    }
   } else {
     if (options.globalSeriesType === 'box') {
       result.boxmode = 'group';
@@ -325,6 +447,10 @@ export function prepareLayout(element, seriesList, options, data) {
       title: getTitle(options.xAxis),
       type: getScaleType(options.xAxis.type),
     };
+
+    if (options.sortX && result.xaxis.type === 'category') {
+      result.xaxis.categoryorder = 'category ascending';
+    }
 
     if (!isUndefined(options.xAxis.labels)) {
       result.xaxis.showticklabels = options.xAxis.labels.enabled;
@@ -373,17 +499,31 @@ export function prepareLayout(element, seriesList, options, data) {
 function updateSeriesText(seriesList, options) {
   each(seriesList, (series) => {
     series.text = [];
-    series.sourceData.forEach((item) => {
-      let text = formatNumber(item.y);
-      if (item.yError !== undefined) {
-        text = `${text} \u00B1 ${formatNumber(item.yError)}`;
+    series.hover = [];
+    const xValues = (options.globalSeriesType === 'pie') ? series.labels : series.x;
+    xValues.forEach((x) => {
+      const text = {
+        '@@name': series.name,
+        // '@@x' is already in `item.$raw`
+      };
+      const item = series.sourceData.get(x);
+      if (item) {
+        text['@@y'] = series.formatNumber(item.y);
+        if (item.yError !== undefined) {
+          text['@@yError'] = series.formatNumber(item.yError);
+        }
+        if (item.size !== undefined) {
+          text['@@size'] = series.formatNumber(item.size);
+        }
+
+        if (options.series.percentValues || (options.globalSeriesType === 'pie')) {
+          text['@@yPercent'] = series.formatPercent(Math.abs(item.yPercent));
+        }
+
+        extend(text, item.raw);
       }
 
-      if (options.series.percentValues) {
-        text = `${formatPercent(Math.abs(item.yPercent))}% (${text})`;
-      }
-
-      series.text.push(text);
+      series.text.push(series.formatText(text));
     });
   });
   return seriesList;
@@ -443,6 +583,7 @@ export function updateData(seriesList, options) {
     return seriesList;
   }
   if (options.globalSeriesType === 'pie') {
+    updateSeriesText(seriesList, options);
     return seriesList;
   }
 
@@ -478,10 +619,15 @@ export function updateData(seriesList, options) {
   updateSeriesText(seriesList, options);
 }
 
-export function calculateMargins(element) {
+export function calculateMargins(element, layout) {
   const axisSpacing = 20;
 
-  const result = {};
+  const result = {
+    l: axisSpacing,
+    r: axisSpacing,
+    t: axisSpacing,
+    b: axisSpacing,
+  };
 
   const edges = { l: '.ytick', r: '.y2tick', b: '.xtick' };
   const dimensions = { l: 'width', r: 'width', b: 'height' };
@@ -495,6 +641,16 @@ export function calculateMargins(element) {
       })) + axisSpacing;
     }
   });
+
+  if (layout.showlegend) {
+    if (layout.legend.orientation === 'h') {
+      const legend = element.querySelector('.legend');
+      if (legend) {
+        const bounds = legend.getBoundingClientRect();
+        result.b += bounds.height;
+      }
+    }
+  }
 
   return result;
 }
@@ -515,6 +671,28 @@ export function updateDimensions(layout, element, margins) {
     layout.width = element.offsetWidth;
     layout.height = element.offsetHeight;
     changed = true;
+  }
+
+  if (layout.showlegend) {
+    const legend = element.querySelector('.legend');
+    if (legend) {
+      const transformName = find([
+        'transform',
+        'webkitTransform',
+        'mozTransform',
+        'msTransform',
+        'oTransform',
+      ], prop => has(legend.style, prop));
+
+      // If trying to place legend below the chart, it overlaps x-axis labels,
+      // so add some extra space and put legend right above the bottom side of chart
+      if (layout.legend.orientation === 'h') {
+        const bounds = legend.getBoundingClientRect();
+        legend.style[transformName] = 'translate(0, ' + (height - bounds.height) + 'px)';
+      } else {
+        legend.style[transformName] = null;
+      }
+    }
   }
 
   return changed;
