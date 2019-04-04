@@ -6,10 +6,9 @@ The following is a set of guidelines for contributing to Redash. These are guide
 
 ## Quick Links:
 
-- [Feature Roadmap](https://trello.com/b/b2LUHU7A/redash-roadmap)
 - [Feature Requests](https://discuss.redash.io/c/feature-requests)
 - [Documentation](https://redash.io/help/)
-- [Blog](http://blog.redash.io/)
+- [Blog](https://blog.redash.io/)
 - [Twitter](https://twitter.com/getredash)
 
 ---
@@ -61,13 +60,13 @@ If you would like to suggest an enhancement or ask for a new feature:
 
 ### Documentation
 
-The project's documentation can be found at [https://redash.io/help/](https://redash.io/help/). The [documentation sources](https://github.com/getredash/website/tree/master/website/_kb) are hosted on GitHub. To contribute edits / new pages, you can use GitHub's interface. Click the "Edit on GitHub" link on the documentation page to quickly open the edit interface.
+The project's documentation can be found at [https://redash.io/help/](https://redash.io/help/). The [documentation sources](https://github.com/getredash/website/tree/master/src/pages/kb) are hosted on GitHub. To contribute edits / new pages, you can use GitHub's interface. Click the "Edit on GitHub" link on the documentation page to quickly open the edit interface.
 
 ## Additional Notes
 
 ### Release Method
 
-We publish a stable release every ~2 months, although the goal is to get to a stable release every month. You can see the change log on [GitHub releases page](http://github.com/getredash/redash/releases).
+We publish a stable release every ~2 months, although the goal is to get to a stable release every month. You can see the change log on [GitHub releases page](https://github.com/getredash/redash/releases).
 
 Every build of the master branch updates the latest *RC release*. These releases are usually stable, but might contain regressions and therefore recommended for "advanced users" only.
 
@@ -75,4 +74,4 @@ When we release a new stable release, we also update the *latest* Docker image t
 
 ## Code of Conduct
 
-This project adheres to the Contributor Covenant [code of conduct](http://redash.io/community/code_of_conduct). By participating, you are expected to uphold this code. Please report unacceptable behavior to team@redash.io.
+This project adheres to the Contributor Covenant [code of conduct](https://redash.io/community/code_of_conduct). By participating, you are expected to uphold this code. Please report unacceptable behavior to team@redash.io.

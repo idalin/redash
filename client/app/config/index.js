@@ -13,10 +13,8 @@ import ngResource from 'angular-resource';
 import uiBootstrap from 'angular-ui-bootstrap';
 import uiSelect from 'ui-select';
 import ngMessages from 'angular-messages';
-import toastr from 'angular-toastr';
 import ngUpload from 'angular-base64-upload';
 import vsRepeat from 'angular-vs-repeat';
-import 'angular-moment';
 import 'brace';
 import 'angular-ui-ace';
 import 'angular-resizable';
@@ -24,11 +22,15 @@ import { each, isFunction, extend } from 'lodash';
 
 import '@/lib/sortable';
 
+import DialogWrapper from '@/components/DialogWrapper';
+import organizationStatus from '@/services/organizationStatus';
+
 import * as filters from '@/filters';
 import registerDirectives from '@/directives';
 import markdownFilter from '@/filters/markdown';
 import dateTimeFilter from '@/filters/datetime';
 import dashboardGridOptions from './dashboard-grid-options';
+import './antd-spinner';
 
 const logger = debug('redash:config');
 
@@ -47,8 +49,6 @@ const requirements = [
   uiBootstrap,
   ngMessages,
   uiSelect,
-  'angularMoment',
-  toastr,
   'ui.ace',
   ngUpload,
   'angularResizable',
@@ -66,7 +66,10 @@ function registerAll(context) {
     .map(context)
     .map(module => module.default);
 
-  return modules.filter(isFunction).map(f => f(ngModule));
+  return modules
+    .filter(isFunction)
+    .filter(f => f.init)
+    .map(f => f(ngModule));
 }
 
 function requireImages() {
@@ -78,22 +81,27 @@ function requireImages() {
 function registerComponents() {
   // We repeat this code in other register functions, because if we don't use a literal for the path
   // Webpack won't be able to statcily analyze our imports.
-  const context = require.context('@/components', true, /^((?![\\/]test[\\/]).)*\.jsx?$/);
+  const context = require.context('@/components', true, /^((?![\\/.]test[\\./]).)*\.jsx?$/);
+  registerAll(context);
+}
+
+function registerExtensions() {
+  const context = require.context('extensions', true, /^((?![\\/.]test[\\./]).)*\.jsx?$/);
   registerAll(context);
 }
 
 function registerServices() {
-  const context = require.context('@/services', true, /^((?![\\/]test[\\/]).)*\.js$/);
+  const context = require.context('@/services', true, /^((?![\\/.]test[\\./]).)*\.js$/);
   registerAll(context);
 }
 
 function registerVisualizations() {
-  const context = require.context('@/visualizations', true, /^((?![\\/]test[\\/]).)*\.js$/);
+  const context = require.context('@/visualizations', true, /^((?![\\/.]test[\\./]).)*\.jsx?$/);
   registerAll(context);
 }
 
 function registerPages() {
-  const context = require.context('@/pages', true, /^((?![\\/]test[\\/]).)*\.js$/);
+  const context = require.context('@/pages', true, /^((?![\\/.]test[\\./]).)*\.jsx?$/);
   const routesCollection = registerAll(context);
   routesCollection.forEach((routes) => {
     ngModule.config(($routeProvider) => {
@@ -102,11 +110,7 @@ function registerPages() {
         route.authenticated = true;
         route.resolve = extend(
           {
-            __organizationStatus: (OrganizationStatus) => {
-              'ngInject';
-
-              return OrganizationStatus.refresh();
-            },
+            __organizationStatus: () => organizationStatus.refresh(),
           },
           route.resolve,
         );
@@ -142,6 +146,11 @@ markdownFilter(ngModule);
 dateTimeFilter(ngModule);
 registerComponents();
 registerPages();
+registerExtensions();
 registerVisualizations(ngModule);
+
+ngModule.run(($q) => {
+  DialogWrapper.Promise = $q;
+});
 
 export default ngModule;
