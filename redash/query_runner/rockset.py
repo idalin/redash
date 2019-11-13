@@ -79,14 +79,18 @@ class Rockset(BaseSQLQueryRunner):
         for col in self.api.list():
             table_name = col['name']
             describe = self.api.query('DESCRIBE "{}"'.format(table_name))
-            columns = list(set(map(lambda x: x['field'][0], describe['results'])))
+            columns = list(set([result['field'][0] for result in describe['results']]))
             schema[table_name] = {'name': table_name, 'columns': columns}
-        return schema.values()
+        return list(schema.values())
 
     def run_query(self, query, user):
         results = self.api.query(query)
         if 'code' in results and results['code'] != 200:
             return None, '{}: {}'.format(results['type'], results['message'])
+
+        if 'results' not in results:
+            message = results.get('message', "Unknown response from Rockset.")
+            return None, message
 
         rows = results['results']
         columns = []

@@ -1,22 +1,16 @@
 import os
+import importlib
+import ssl
 from funcy import distinct, remove
 from flask_talisman import talisman
 
-from .helpers import fix_assets_path, array_from_string, parse_boolean, int_or_none, set_from_string
-from .organization import DATE_FORMAT
+from .helpers import fix_assets_path, array_from_string, parse_boolean, int_or_none, set_from_string, add_decode_responses_to_redis_url
+from .organization import DATE_FORMAT, TIME_FORMAT  # noqa
 
-
-def all_settings():
-    from types import ModuleType
-
-    settings = {}
-    for name, item in globals().iteritems():
-        if not callable(item) and not name.startswith("__") and not isinstance(item, ModuleType):
-            settings[name] = item
-
-    return settings
-
-REDIS_URL = os.environ.get('REDASH_REDIS_URL', os.environ.get('REDIS_URL', "redis://localhost:6379/0"))
+# _REDIS_URL is the unchanged REDIS_URL we get from env vars, to be used later with Celery
+_REDIS_URL = os.environ.get('REDASH_REDIS_URL', os.environ.get('REDIS_URL', "redis://localhost:6379/0"))
+# This is the one to use for Redash' own connection:
+REDIS_URL = add_decode_responses_to_redis_url(_REDIS_URL)
 PROXIES_COUNT = int(os.environ.get('REDASH_PROXIES_COUNT', "1"))
 
 STATSD_HOST = os.environ.get('REDASH_STATSD_HOST', "127.0.0.1")
@@ -32,14 +26,30 @@ SQLALCHEMY_DISABLE_POOL = parse_boolean(os.environ.get("SQLALCHEMY_DISABLE_POOL"
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 SQLALCHEMY_ECHO = False
 
+RQ_REDIS_URL = os.environ.get("RQ_REDIS_URL", _REDIS_URL)
+
 # Celery related settings
-CELERY_BROKER = os.environ.get("REDASH_CELERY_BROKER", REDIS_URL)
+CELERY_BROKER = os.environ.get("REDASH_CELERY_BROKER", _REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get(
     "REDASH_CELERY_RESULT_BACKEND",
     os.environ.get("REDASH_CELERY_BACKEND", CELERY_BROKER))
 CELERY_RESULT_EXPIRES = int(os.environ.get(
     "REDASH_CELERY_RESULT_EXPIRES",
     os.environ.get("REDASH_CELERY_TASK_RESULT_EXPIRES", 3600 * 4)))
+CELERY_INIT_TIMEOUT = int(os.environ.get(
+    "REDASH_CELERY_INIT_TIMEOUT", 10))
+CELERY_BROKER_USE_SSL = CELERY_BROKER.startswith('rediss')
+CELERY_SSL_CONFIG = {
+    'ssl_cert_reqs': int(os.environ.get("REDASH_CELERY_BROKER_SSL_CERT_REQS",  ssl.CERT_OPTIONAL)),
+    'ssl_ca_certs': os.environ.get("REDASH_CELERY_BROKER_SSL_CA_CERTS"),
+    'ssl_certfile': os.environ.get("REDASH_CELERY_BROKER_SSL_CERTFILE"),
+    'ssl_keyfile': os.environ.get("REDASH_CELERY_BROKER_SSL_KEYFILE"),
+} if CELERY_BROKER_USE_SSL else None
+
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.environ.get("REDASH_CELERY_WORKER_PREFETCH_MULTIPLIER", 1))
+CELERY_ACCEPT_CONTENT = os.environ.get("REDASH_CELERY_ACCEPT_CONTENT", "json").split(",")
+CELERY_TASK_SERIALIZER = os.environ.get("REDASH_CELERY_TASK_SERIALIZER", "json")
+CELERY_RESULT_SERIALIZER = os.environ.get("REDASH_CELERY_RESULT_SERIALIZER", "json")
 
 # The following enables periodic job (every 5 minutes) of removing unused query results.
 QUERY_RESULTS_CLEANUP_ENABLED = parse_boolean(os.environ.get("REDASH_QUERY_RESULTS_CLEANUP_ENABLED", "true"))
@@ -47,7 +57,6 @@ QUERY_RESULTS_CLEANUP_COUNT = int(os.environ.get("REDASH_QUERY_RESULTS_CLEANUP_C
 QUERY_RESULTS_CLEANUP_MAX_AGE = int(os.environ.get("REDASH_QUERY_RESULTS_CLEANUP_MAX_AGE", "7"))
 
 SCHEMAS_REFRESH_SCHEDULE = int(os.environ.get("REDASH_SCHEMAS_REFRESH_SCHEDULE", 30))
-SCHEMAS_REFRESH_QUEUE = os.environ.get("REDASH_SCHEMAS_REFRESH_QUEUE", "celery")
 
 AUTH_TYPE = os.environ.get("REDASH_AUTH_TYPE", "api_key")
 INVITATION_TOKEN_MAX_AGE = int(os.environ.get("REDASH_INVITATION_TOKEN_MAX_AGE", 60 * 60 * 24 * 7))
@@ -109,7 +118,7 @@ HSTS_INCLUDE_SUBDOMAINS = parse_boolean(
 # for more information. E.g.:
 CONTENT_SECURITY_POLICY = os.environ.get(
     "REDASH_CONTENT_SECURITY_POLICY",
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; font-src 'self' data:; img-src 'self' http: https: data:; object-src 'none'; frame-ancestors 'none';"
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; font-src 'self' data:; img-src 'self' http: https: data:; object-src 'none'; frame-ancestors 'none'; frame-src redash.io;"
 )
 CONTENT_SECURITY_POLICY_REPORT_URI = os.environ.get(
     "REDASH_CONTENT_SECURITY_POLICY_REPORT_URI", "")
@@ -188,6 +197,7 @@ LDAP_SEARCH_DN = os.environ.get('REDASH_LDAP_SEARCH_DN', os.environ.get('REDASH_
 STATIC_ASSETS_PATH = fix_assets_path(os.environ.get("REDASH_STATIC_ASSETS_PATH", "../client/dist/"))
 
 JOB_EXPIRY_TIME = int(os.environ.get("REDASH_JOB_EXPIRY_TIME", 3600 * 12))
+JOB_DEFAULT_FAILURE_TTL = int(os.environ.get("REDASH_JOB_DEFAULT_FAILURE_TTL", 7 * 24 * 60 * 60))
 
 LOG_LEVEL = os.environ.get("REDASH_LOG_LEVEL", "INFO")
 LOG_STDOUT = parse_boolean(os.environ.get('REDASH_LOG_STDOUT', 'false'))
@@ -203,6 +213,10 @@ CELERYD_WORKER_TASK_LOG_FORMAT = os.environ.get(
                    (LOG_PREFIX + '[%(asctime)s][PID:%(process)d][%(levelname)s][%(processName)s] '
                     'task_name=%(task_name)s '
                     'task_id=%(task_id)s %(message)s')))
+RQ_WORKER_JOB_LOG_FORMAT = os.environ.get("REDASH_RQ_WORKER_JOB_LOG_FORMAT",
+                                          (LOG_PREFIX + '[%(asctime)s][PID:%(process)d][%(levelname)s][%(name)s] '
+                                           'job.description=%(job_description)s '
+                                           'job.id=%(job_id)s %(message)s'))
 
 # Mail settings:
 MAIL_SERVER = os.environ.get('REDASH_MAIL_SERVER', 'localhost')
@@ -221,6 +235,9 @@ def email_server_is_configured():
 
 
 HOST = os.environ.get('REDASH_HOST', '')
+
+SEND_FAILURE_EMAIL_INTERVAL = int(os.environ.get('REDASH_SEND_FAILURE_EMAIL_INTERVAL', 60))
+MAX_FAILURE_REPORTS_PER_QUERY = int(os.environ.get('REDASH_MAX_FAILURE_REPORTS_PER_QUERY', 100))
 
 ALERTS_DEFAULT_MAIL_SUBJECT_TEMPLATE = os.environ.get('REDASH_ALERTS_DEFAULT_MAIL_SUBJECT_TEMPLATE', "({state}) {alert_name}")
 
@@ -247,6 +264,7 @@ default_query_runners = [
     'redash.query_runner.google_spreadsheets',
     'redash.query_runner.graphite',
     'redash.query_runner.mongodb',
+    'redash.query_runner.couchbase',
     'redash.query_runner.mysql',
     'redash.query_runner.pg',
     'redash.query_runner.url',
@@ -280,7 +298,11 @@ default_query_runners = [
     'redash.query_runner.drill',
     'redash.query_runner.uptycs',
     'redash.query_runner.snowflake',
-    'redash.query_runner.phoenix'
+    'redash.query_runner.phoenix',
+    'redash.query_runner.json_ds',
+    'redash.query_runner.cass',
+    'redash.query_runner.dgraph',
+    'redash.query_runner.azure_kusto',
 ]
 
 enabled_query_runners = array_from_string(os.environ.get("REDASH_ENABLED_QUERY_RUNNERS", ",".join(default_query_runners)))
@@ -288,7 +310,8 @@ additional_query_runners = array_from_string(os.environ.get("REDASH_ADDITIONAL_Q
 disabled_query_runners = array_from_string(os.environ.get("REDASH_DISABLED_QUERY_RUNNERS", ""))
 
 QUERY_RUNNERS = remove(set(disabled_query_runners), distinct(enabled_query_runners + additional_query_runners))
-ADHOC_QUERY_TIME_LIMIT = int_or_none(os.environ.get('REDASH_ADHOC_QUERY_TIME_LIMIT', None))
+
+dynamic_settings = importlib.import_module(os.environ.get('REDASH_DYNAMIC_SETTINGS_MODULE', 'redash.settings.dynamic_settings'))
 
 # Destinations
 default_destinations = [
@@ -314,10 +337,10 @@ SENTRY_DSN = os.environ.get("REDASH_SENTRY_DSN", "")
 
 # Client side toggles:
 ALLOW_SCRIPTS_IN_USER_INPUT = parse_boolean(os.environ.get("REDASH_ALLOW_SCRIPTS_IN_USER_INPUT", "false"))
-DASHBOARD_REFRESH_INTERVALS = map(int, array_from_string(os.environ.get("REDASH_DASHBOARD_REFRESH_INTERVALS", "60,300,600,1800,3600,43200,86400")))
-QUERY_REFRESH_INTERVALS = map(int, array_from_string(os.environ.get("REDASH_QUERY_REFRESH_INTERVALS", "60, 300, 600, 900, 1800, 3600, 7200, 10800, 14400, 18000, 21600, 25200, 28800, 32400, 36000, 39600, 43200, 86400, 604800, 1209600, 2592000")))
+DASHBOARD_REFRESH_INTERVALS = list(map(int, array_from_string(os.environ.get("REDASH_DASHBOARD_REFRESH_INTERVALS", "60,300,600,1800,3600,43200,86400"))))
+QUERY_REFRESH_INTERVALS = list(map(int, array_from_string(os.environ.get("REDASH_QUERY_REFRESH_INTERVALS", "60, 300, 600, 900, 1800, 3600, 7200, 10800, 14400, 18000, 21600, 25200, 28800, 32400, 36000, 39600, 43200, 86400, 604800, 1209600, 2592000"))))
 PAGE_SIZE = int(os.environ.get('REDASH_PAGE_SIZE', 20))
-PAGE_SIZE_OPTIONS = map(int, array_from_string(os.environ.get("REDASH_PAGE_SIZE_OPTIONS", "5,10,20,50,100")))
+PAGE_SIZE_OPTIONS = list(map(int, array_from_string(os.environ.get("REDASH_PAGE_SIZE_OPTIONS", "5,10,20,50,100"))))
 TABLE_CELL_MAX_JSON_SIZE = int(os.environ.get('REDASH_TABLE_CELL_MAX_JSON_SIZE', 50000))
 
 # Features:
@@ -326,6 +349,7 @@ FEATURE_DISABLE_REFRESH_QUERIES = parse_boolean(os.environ.get("REDASH_FEATURE_D
 FEATURE_SHOW_QUERY_RESULTS_COUNT = parse_boolean(os.environ.get("REDASH_FEATURE_SHOW_QUERY_RESULTS_COUNT", "true"))
 FEATURE_ALLOW_CUSTOM_JS_VISUALIZATIONS = parse_boolean(os.environ.get("REDASH_FEATURE_ALLOW_CUSTOM_JS_VISUALIZATIONS", "false"))
 FEATURE_AUTO_PUBLISH_NAMED_QUERIES = parse_boolean(os.environ.get("REDASH_FEATURE_AUTO_PUBLISH_NAMED_QUERIES", "true"))
+FEATURE_EXTENDED_ALERT_OPTIONS = parse_boolean(os.environ.get("REDASH_FEATURE_EXTENDED_ALERT_OPTIONS", "false"))
 
 # BigQuery
 BIGQUERY_HTTP_TIMEOUT = int(os.environ.get("REDASH_BIGQUERY_HTTP_TIMEOUT", "600"))

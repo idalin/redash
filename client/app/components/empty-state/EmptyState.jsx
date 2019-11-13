@@ -3,19 +3,10 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { react2angular } from 'react2angular';
 import classNames from 'classnames';
-import { $uibModal } from '@/services/ng';
+import CreateDashboardDialog from '@/components/dashboards/CreateDashboardDialog';
 import { currentUser } from '@/services/auth';
 import organizationStatus from '@/services/organizationStatus';
 import './empty-state.less';
-
-function createDashboard() {
-  $uibModal.open({
-    component: 'editDashboardDialog',
-    resolve: {
-      dashboard: () => ({ name: null, layout: null }),
-    },
-  });
-}
 
 function Step({ show, completed, text, url, urlText, onClick }) {
   if (!show) {
@@ -24,7 +15,7 @@ function Step({ show, completed, text, url, urlText, onClick }) {
 
   return (
     <li className={classNames({ done: completed })}>
-      <a href={url || 'javascript:void(0)'} onClick={onClick}>
+      <a href={url} onClick={onClick}>
         {urlText}
       </a>{' '}
       {text}
@@ -49,7 +40,7 @@ Step.defaultProps = {
 
 export function EmptyState({
   icon,
-  title,
+  header,
   description,
   illustration,
   helpLink,
@@ -84,7 +75,7 @@ export function EmptyState({
   return (
     <div className="empty-state bg-white tiled">
       <div className="empty-state__summary">
-        {title && <h4>{title}</h4>}
+        {header && <h4>{header}</h4>}
         <h2>
           <i className={icon} />
         </h2>
@@ -131,7 +122,7 @@ export function EmptyState({
           <Step
             show={isAvailable.dashboard}
             completed={isCompleted.dashboard}
-            onClick={createDashboard}
+            onClick={() => CreateDashboardDialog.showModal()}
             urlText="Create"
             text="your first Dashboard"
           />
@@ -157,7 +148,7 @@ export function EmptyState({
 
 EmptyState.propTypes = {
   icon: PropTypes.string,
-  title: PropTypes.string,
+  header: PropTypes.string,
   description: PropTypes.string.isRequired,
   illustration: PropTypes.string.isRequired,
   helpLink: PropTypes.string.isRequired,
@@ -170,7 +161,7 @@ EmptyState.propTypes = {
 
 EmptyState.defaultProps = {
   icon: null,
-  title: null,
+  header: null,
 
   onboardingMode: false,
   showAlertStep: false,

@@ -2,30 +2,17 @@ import moment from 'moment';
 import debug from 'debug';
 import Mustache from 'mustache';
 import {
-  zipObject, isEmpty, map, filter, includes, union, uniq, has,
-  isNull, isUndefined, isArray, isObject, identity, extend, each,
+  zipObject, isEmpty, map, filter, includes, union,
+  uniq, has, identity, extend, each, some,
 } from 'lodash';
+
+import { Parameter } from './parameters';
 
 Mustache.escape = identity; // do not html-escape values
 
 export let Query = null; // eslint-disable-line import/no-mutable-exports
 
 const logger = debug('redash:services:query');
-
-const DATETIME_FORMATS = {
-  // eslint-disable-next-line quote-props
-  'date': 'YYYY-MM-DD',
-  'date-range': 'YYYY-MM-DD',
-  'datetime-local': 'YYYY-MM-DD HH:mm',
-  'datetime-range': 'YYYY-MM-DD HH:mm',
-  'datetime-with-seconds': 'YYYY-MM-DD HH:mm:ss',
-  'datetime-range-with-seconds': 'YYYY-MM-DD HH:mm:ss',
-};
-
-function normalizeNumericValue(value, defaultValue = null) {
-  const result = parseFloat(value);
-  return isFinite(result) ? result : defaultValue;
-}
 
 function collectParams(parts) {
   let parameters = [];
@@ -41,176 +28,6 @@ function collectParams(parts) {
   return parameters;
 }
 
-function isDateParameter(paramType) {
-  return includes(['date', 'datetime-local', 'datetime-with-seconds'], paramType);
-}
-
-function isDateRangeParameter(paramType) {
-  return includes(['date-range', 'datetime-range', 'datetime-range-with-seconds'], paramType);
-}
-
-export class Parameter {
-  constructor(parameter, parentQueryId) {
-    this.title = parameter.title;
-    this.name = parameter.name;
-    this.type = parameter.type;
-    this.useCurrentDateTime = parameter.useCurrentDateTime;
-    this.global = parameter.global; // backward compatibility in Widget service
-    this.enumOptions = parameter.enumOptions;
-    this.queryId = parameter.queryId;
-    this.parentQueryId = parentQueryId;
-
-    // Used for meta-parameters (i.e. dashboard-level params)
-    this.locals = [];
-
-    // validate value and init internal state
-    this.setValue(parameter.value);
-
-    // Used for URL serialization
-    Object.defineProperty(this, 'urlPrefix', {
-      configurable: true,
-      enumerable: false, // don't save it
-      writable: true,
-      value: 'p_',
-    });
-  }
-
-  clone() {
-    return new Parameter(this, this.parentQueryId);
-  }
-
-  get isEmpty() {
-    return isNull(this.getValue());
-  }
-
-  getValue() {
-    return this.constructor.getValue(this);
-  }
-
-  static getValue(param) {
-    const { value, type, useCurrentDateTime } = param;
-    const isEmptyValue = isNull(value) || isUndefined(value) || (value === '');
-    if (isEmptyValue) {
-      if (
-        includes(['date', 'datetime-local', 'datetime-with-seconds'], type) &&
-        useCurrentDateTime
-      ) {
-        return moment().format(DATETIME_FORMATS[type]);
-      }
-      return null; // normalize empty value
-    }
-    if (type === 'number') {
-      return normalizeNumericValue(value, null); // normalize empty value
-    }
-    return value;
-  }
-
-  setValue(value) {
-    if (isDateRangeParameter(this.type)) {
-      this.value = null;
-      this.$$value = null;
-
-      if (isObject(value) && !isArray(value)) {
-        value = [value.start, value.end];
-      }
-
-      if (isArray(value) && (value.length === 2)) {
-        value = [moment(value[0]), moment(value[1])];
-        if (value[0].isValid() && value[1].isValid()) {
-          this.value = {
-            start: value[0].format(DATETIME_FORMATS[this.type]),
-            end: value[1].format(DATETIME_FORMATS[this.type]),
-          };
-          this.$$value = value;
-        }
-      }
-    } else if (isDateParameter(this.type)) {
-      this.value = null;
-      this.$$value = null;
-
-      value = moment(value);
-      if (value.isValid()) {
-        this.value = value.format(DATETIME_FORMATS[this.type]);
-        this.$$value = value;
-      }
-    } else if (this.type === 'number') {
-      this.value = value;
-      this.$$value = normalizeNumericValue(value, null);
-    } else {
-      this.value = value;
-      this.$$value = value;
-    }
-
-    if (isArray(this.locals)) {
-      each(this.locals, (local) => {
-        local.setValue(this.value);
-      });
-    }
-
-    return this;
-  }
-
-  get normalizedValue() {
-    return this.$$value;
-  }
-
-  // TODO: Remove this property when finally moved to React
-  get ngModel() {
-    return this.normalizedValue;
-  }
-
-  set ngModel(value) {
-    this.setValue(value);
-  }
-
-  toUrlParams() {
-    if (this.isEmpty) {
-      return {};
-    }
-    const prefix = this.urlPrefix;
-    if (isDateRangeParameter(this.type)) {
-      return {
-        [`${prefix}${this.name}.start`]: this.value.start,
-        [`${prefix}${this.name}.end`]: this.value.end,
-      };
-    }
-    return {
-      [`${prefix}${this.name}`]: this.value,
-    };
-  }
-
-  fromUrlParams(query) {
-    const prefix = this.urlPrefix;
-    if (isDateRangeParameter(this.type)) {
-      const keyStart = `${prefix}${this.name}.start`;
-      const keyEnd = `${prefix}${this.name}.end`;
-      if (has(query, keyStart) && has(query, keyEnd)) {
-        this.setValue([query[keyStart], query[keyEnd]]);
-      }
-    } else {
-      const key = `${prefix}${this.name}`;
-      if (has(query, key)) {
-        this.setValue(query[key]);
-      }
-    }
-  }
-
-  toQueryTextFragment() {
-    if (isDateRangeParameter(this.type)) {
-      return `{{ ${this.name}.start }} {{ ${this.name}.end }}`;
-    }
-    return `{{ ${this.name} }}`;
-  }
-
-  loadDropdownValues() {
-    if (this.parentQueryId) {
-      return Query.associatedDropdown({ queryId: this.parentQueryId, dropdownQueryId: this.queryId }).$promise;
-    }
-
-    return Query.asDropdown({ id: this.queryId }).$promise;
-  }
-}
-
 class Parameters {
   constructor(query, queryString) {
     this.query = query;
@@ -219,25 +36,32 @@ class Parameters {
   }
 
   parseQuery() {
+    const fallback = () => map(this.query.options.parameters, i => i.name);
+
     let parameters = [];
-    try {
-      const parts = Mustache.parse(this.query.query);
-      parameters = uniq(collectParams(parts));
-    } catch (e) {
-      logger('Failed parsing parameters: ', e);
-      // Return current parameters so we don't reset the list
-      parameters = map(this.query.options.parameters, i => i.name);
+    if (this.query.query !== undefined) {
+      try {
+        const parts = Mustache.parse(this.query.query);
+        parameters = uniq(collectParams(parts));
+      } catch (e) {
+        logger('Failed parsing parameters: ', e);
+        // Return current parameters so we don't reset the list
+        parameters = fallback();
+      }
+    } else {
+      parameters = fallback();
     }
+
     return parameters;
   }
 
-  updateParameters() {
-    if (this.query.query === this.cachedQueryText) {
+  updateParameters(update) {
+    if (this.query.query && this.query.query === this.cachedQueryText) {
       return;
     }
 
     this.cachedQueryText = this.query.query;
-    const parameterNames = this.parseQuery();
+    const parameterNames = update ? this.parseQuery() : map(this.query.options.parameters, p => p.name);
 
     this.query.options.parameters = this.query.options.parameters || [];
 
@@ -248,7 +72,7 @@ class Parameters {
 
     parameterNames.forEach((param) => {
       if (!has(parametersMap, param)) {
-        this.query.options.parameters.push(new Parameter({
+        this.query.options.parameters.push(Parameter.create({
           title: param,
           name: param,
           type: 'text',
@@ -260,7 +84,8 @@ class Parameters {
 
     const parameterExists = p => includes(parameterNames, p.name);
     const parameters = this.query.options.parameters;
-    this.query.options.parameters = parameters.filter(parameterExists).map(p => new Parameter(p, this.query.id));
+    this.query.options.parameters = parameters.filter(parameterExists)
+      .map(p => (p instanceof Parameter ? p : Parameter.create(p, this.query.id)));
   }
 
   initFromQueryString(query) {
@@ -269,15 +94,15 @@ class Parameters {
     });
   }
 
-  get() {
-    this.updateParameters();
+  get(update = true) {
+    this.updateParameters(update);
     return this.query.options.parameters;
   }
 
   add(parameterDef) {
     this.query.options.parameters = this.query.options.parameters
       .filter(p => p.name !== parameterDef.name);
-    const param = new Parameter(parameterDef);
+    const param = Parameter.create(parameterDef);
     this.query.options.parameters.push(param);
     return param;
   }
@@ -290,13 +115,26 @@ class Parameters {
     return !isEmpty(this.get());
   }
 
-  getValues() {
+  getExecutionValues(extra = {}) {
     const params = this.get();
-    return zipObject(map(params, i => i.name), map(params, i => i.getValue()));
+    return zipObject(map(params, i => i.name), map(params, i => i.getExecutionValue(extra)));
+  }
+
+  hasPendingValues() {
+    return some(this.get(), p => p.hasPendingValue);
+  }
+
+  applyPendingValues() {
+    each(this.get(), p => p.applyPendingValue());
   }
 
   toUrlParams() {
+    if (this.get().length === 0) {
+      return '';
+    }
+
     const params = Object.assign(...this.get().map(p => p.toUrlParams()));
+    Object.keys(params).forEach(key => params[key] == null && delete params[key]);
     return Object
       .keys(params)
       .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
@@ -335,11 +173,6 @@ function QueryResultErrorFactory($q) {
 
     // eslint-disable-next-line class-methods-use-this
     getLog() {
-      return null;
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    getChartData() {
       return null;
     }
   }
@@ -474,11 +307,11 @@ function QueryResource(
     return this.getParameters().isRequired();
   };
 
-  QueryService.prototype.prepareQueryResultExecution = function prepareQueryResultExecution(execute, maxAge) {
-    if (!this.query) {
-      return new QueryResultError("Can't execute empty query.");
-    }
+  QueryService.prototype.hasParameters = function hasParameters() {
+    return this.getParametersDefs().length > 0;
+  };
 
+  QueryService.prototype.prepareQueryResultExecution = function prepareQueryResultExecution(execute, maxAge) {
     const parameters = this.getParameters();
     const missingParams = parameters.getMissing();
 
@@ -512,25 +345,27 @@ function QueryResource(
       }
     } else if (this.latest_query_data_id && maxAge !== 0) {
       if (!this.queryResult) {
-        this.queryResult = QueryResult.getById(this.latest_query_data_id);
+        this.queryResult = QueryResult.getById(this.id, this.latest_query_data_id);
       }
-    } else if (this.data_source_id) {
-      this.queryResult = execute();
     } else {
-      return new QueryResultError('Please select data source to run this query.');
+      this.queryResult = execute();
     }
 
     return this.queryResult;
   };
 
   QueryService.prototype.getQueryResult = function getQueryResult(maxAge) {
-    const execute = () => QueryResult.getByQueryId(this.id, this.getParameters().getValues(), maxAge);
+    const execute = () => QueryResult.getByQueryId(this.id, this.getParameters().getExecutionValues(), maxAge);
     return this.prepareQueryResultExecution(execute, maxAge);
   };
 
   QueryService.prototype.getQueryResultByText = function getQueryResultByText(maxAge, selectedQueryText) {
     const queryText = selectedQueryText || this.query;
-    const parameters = this.getParameters().getValues();
+    if (!queryText) {
+      return new QueryResultError("Can't execute empty query.");
+    }
+
+    const parameters = this.getParameters().getExecutionValues({ joinListValues: true });
     const execute = () => QueryResult.get(this.data_source_id, queryText, parameters, maxAge, this.id);
     return this.prepareQueryResultExecution(execute, maxAge);
   };
@@ -548,6 +383,7 @@ function QueryResource(
         extend(params, param.toUrlParams());
       });
     }
+    Object.keys(params).forEach(key => params[key] == null && delete params[key]);
     params = map(params, (value, name) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join('&');
 
     if (params !== '') {
@@ -573,8 +409,8 @@ function QueryResource(
     return this.$parameters;
   };
 
-  QueryService.prototype.getParametersDefs = function getParametersDefs() {
-    return this.getParameters().get();
+  QueryService.prototype.getParametersDefs = function getParametersDefs(update = true) {
+    return this.getParameters().get(update);
   };
 
   return QueryService;

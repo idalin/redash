@@ -9,6 +9,7 @@ from redash.handlers.base import (BaseResource, get_object_or_404,
                                   require_fields)
 from redash.permissions import (require_access, require_admin_or_owner,
                                 require_permission, view_only)
+from redash.utils import json_dumps
 
 
 class AlertResource(BaseResource):
@@ -46,6 +47,34 @@ class AlertResource(BaseResource):
         models.db.session.commit()
 
 
+class AlertMuteResource(BaseResource):
+    def post(self, alert_id):
+        alert = get_object_or_404(models.Alert.get_by_id_and_org, alert_id, self.current_org)
+        require_admin_or_owner(alert.user.id)
+
+        alert.options['muted'] = True
+        models.db.session.commit()
+
+        self.record_event({
+            'action': 'mute',
+            'object_id': alert.id,
+            'object_type': 'alert'
+        })
+
+    def delete(self, alert_id):
+        alert = get_object_or_404(models.Alert.get_by_id_and_org, alert_id, self.current_org)
+        require_admin_or_owner(alert.user.id)
+
+        alert.options['muted'] = False
+        models.db.session.commit()
+
+        self.record_event({
+            'action': 'unmute',
+            'object_id': alert.id,
+            'object_type': 'alert'
+        })
+
+
 class AlertListResource(BaseResource):
     def post(self):
         req = request.get_json(True)
@@ -60,7 +89,7 @@ class AlertListResource(BaseResource):
             query_rel=query,
             user=self.current_user,
             rearm=req.get('rearm'),
-            options=req['options']
+            options=req['options'],
         )
 
         models.db.session.add(alert)

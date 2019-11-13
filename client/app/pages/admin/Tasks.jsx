@@ -7,11 +7,20 @@ import Alert from 'antd/lib/alert';
 import Tabs from 'antd/lib/tabs';
 import * as Grid from 'antd/lib/grid';
 import Layout from '@/components/admin/Layout';
-import { CounterCard, QueuesTable, QueriesTable, OtherTasksTable } from '@/components/admin/CeleryStatus';
+import { CounterCard, QueuesTable, QueriesTable } from '@/components/admin/CeleryStatus';
 
 import { $http } from '@/services/ng';
 import recordEvent from '@/services/recordEvent';
 import { routesToAngularRoutes } from '@/lib/utils';
+
+// Converting name coming from API to the one the UI expects.
+// TODO: update the UI components to use `waiting_in_queue` instead of `waiting`.
+function stateName(state) {
+  if (state === 'waiting_in_queue') {
+    return 'waiting';
+  }
+  return state;
+}
 
 class Tasks extends React.Component {
   state = {
@@ -20,7 +29,6 @@ class Tasks extends React.Component {
 
     queues: [],
     queries: [],
-    otherTasks: [],
     counters: { active: 0, reserved: 0, waiting: 0 },
   };
 
@@ -41,11 +49,11 @@ class Tasks extends React.Component {
   processTasks = (tasks) => {
     const queues = {};
     const queries = [];
-    const otherTasks = [];
 
     const counters = { active: 0, reserved: 0, waiting: 0 };
 
     each(tasks, (task) => {
+      task.state = stateName(task.state);
       queues[task.queue] = queues[task.queue] || { name: task.queue, active: 0, reserved: 0, waiting: 0 };
       queues[task.queue][task.state] += 1;
 
@@ -60,12 +68,10 @@ class Tasks extends React.Component {
 
       if (task.task_name === 'redash.tasks.execute_query') {
         queries.push(task);
-      } else {
-        otherTasks.push(task);
       }
     });
 
-    this.setState({ isLoading: false, queues: values(queues), queries, otherTasks, counters });
+    this.setState({ isLoading: false, queues: values(queues), queries, counters });
   };
 
   handleError = (error) => {
@@ -73,7 +79,7 @@ class Tasks extends React.Component {
   };
 
   render() {
-    const { isLoading, error, queues, queries, otherTasks, counters } = this.state;
+    const { isLoading, error, queues, queries, counters } = this.state;
 
     return (
       <Layout activeTab="tasks">
@@ -102,9 +108,6 @@ class Tasks extends React.Component {
                 </Tabs.TabPane>
                 <Tabs.TabPane key="queries" tab="Queries">
                   <QueriesTable loading={isLoading} items={queries} />
-                </Tabs.TabPane>
-                <Tabs.TabPane key="other" tab="Other Tasks">
-                  <OtherTasksTable loading={isLoading} items={otherTasks} />
                 </Tabs.TabPane>
               </Tabs>
             </React.Fragment>

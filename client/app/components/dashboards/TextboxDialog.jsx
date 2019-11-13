@@ -6,6 +6,7 @@ import Modal from 'antd/lib/modal';
 import Input from 'antd/lib/input';
 import Tooltip from 'antd/lib/tooltip';
 import Divider from 'antd/lib/divider';
+import HtmlContent from '@/components/HtmlContent';
 import { wrap as wrapDialog, DialogPropType } from '@/components/DialogWrapper';
 import notification from '@/services/notification';
 
@@ -13,7 +14,6 @@ import './TextboxDialog.less';
 
 class TextboxDialog extends React.Component {
   static propTypes = {
-    dashboard: PropTypes.object.isRequired, // eslint-disable-line react/forbid-prop-types
     dialog: DialogPropType.isRequired,
     onConfirm: PropTypes.func.isRequired,
     text: PropTypes.string,
@@ -100,10 +100,7 @@ class TextboxDialog extends React.Component {
             <React.Fragment>
               <Divider dashed />
               <strong className="preview-title">Preview:</strong>
-              <p
-                dangerouslySetInnerHTML={{ __html: this.state.preview }} // eslint-disable-line react/no-danger
-                className="preview"
-              />
+              <HtmlContent className="preview markdown">{this.state.preview}</HtmlContent>
             </React.Fragment>
           )}
         </div>

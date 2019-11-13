@@ -12,7 +12,7 @@ class TestQueryResourceGet(BaseTestCase):
 
         rv = self.make_request('get', '/api/queries/{0}'.format(query.id))
 
-        self.assertEquals(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 200)
         expected = serialize_query(query, with_visualizations=True)
         expected['can_edit'] = True
         expected['is_favorite'] = False
@@ -22,8 +22,8 @@ class TestQueryResourceGet(BaseTestCase):
         [self.factory.create_query() for _ in range(10)]
         rv = self.make_request('get', '/api/queries')
 
-        self.assertEquals(rv.status_code, 200)
-        self.assertEquals(len(rv.json['results']), 10)
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(len(rv.json['results']), 10)
 
     def test_query_without_data_source_should_be_available_only_by_admin(self):
         query = self.factory.create_query()
@@ -31,10 +31,10 @@ class TestQueryResourceGet(BaseTestCase):
         db.session.add(query)
 
         rv = self.make_request('get', '/api/queries/{}'.format(query.id))
-        self.assertEquals(rv.status_code, 403)
+        self.assertEqual(rv.status_code, 403)
 
         rv = self.make_request('get', '/api/queries/{}'.format(query.id), user=self.factory.create_admin())
-        self.assertEquals(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 200)
 
     def test_query_only_accessible_to_users_from_its_organization(self):
         second_org = self.factory.create_org()
@@ -45,10 +45,10 @@ class TestQueryResourceGet(BaseTestCase):
         db.session.add(query)
 
         rv = self.make_request('get', '/api/queries/{}'.format(query.id), user=second_org_admin)
-        self.assertEquals(rv.status_code, 404)
+        self.assertEqual(rv.status_code, 404)
 
         rv = self.make_request('get', '/api/queries/{}'.format(query.id), user=self.factory.create_admin())
-        self.assertEquals(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 200)
 
     def test_query_search(self):
         names = [
@@ -62,22 +62,22 @@ class TestQueryResourceGet(BaseTestCase):
 
         rv = self.make_request('get', '/api/queries?q=better')
 
-        self.assertEquals(rv.status_code, 200)
-        self.assertEquals(len(rv.json['results']), 1)
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(len(rv.json['results']), 1)
 
         rv = self.make_request('get', '/api/queries?q=better OR faster')
 
-        self.assertEquals(rv.status_code, 200)
-        self.assertEquals(len(rv.json['results']), 2)
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(len(rv.json['results']), 2)
 
         # test the old search API and that it redirects to the new one
         rv = self.make_request('get', '/api/queries/search?q=stronger')
-        self.assertEquals(rv.status_code, 301)
+        self.assertEqual(rv.status_code, 301)
         self.assertIn('/api/queries?q=stronger', rv.headers['Location'])
 
         rv = self.make_request('get', '/api/queries/search?q=stronger', follow_redirects=True)
-        self.assertEquals(rv.status_code, 200)
-        self.assertEquals(len(rv.json['results']), 1)
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(len(rv.json['results']), 1)
 
 
 class TestQueryResourcePost(BaseTestCase):
@@ -122,6 +122,11 @@ class TestQueryResourcePost(BaseTestCase):
 
         options = {
             'parameters': [{
+                'name': 'foo',
+                'type': 'query',
+                'queryId': other_query.id
+            }, {
+                'name': 'bar',
                 'type': 'query',
                 'queryId': other_query.id
             }]
@@ -196,16 +201,16 @@ class TestQueryListResourceGet(BaseTestCase):
         rv = self.make_request('get', '/api/queries')
 
         assert len(rv.json['results']) == 3
-        assert set(map(lambda d: d['id'], rv.json['results'])) == set([q1.id, q2.id, q3.id])
+        assert set([result['id'] for result in rv.json['results']]) == set([q1.id, q2.id, q3.id])
 
     def test_filters_with_tags(self):
-        q1 = self.factory.create_query(tags=[u'test'])
+        q1 = self.factory.create_query(tags=['test'])
         self.factory.create_query()
         self.factory.create_query()
 
         rv = self.make_request('get', '/api/queries?tags=test')
         assert len(rv.json['results']) == 1
-        assert set(map(lambda d: d['id'], rv.json['results'])) == set([q1.id])
+        assert set([result['id'] for result in rv.json['results']]) == set([q1.id])
 
     def test_search_term(self):
         q1 = self.factory.create_query(name="Sales")
@@ -214,7 +219,7 @@ class TestQueryListResourceGet(BaseTestCase):
 
         rv = self.make_request('get', '/api/queries?q=sales')
         assert len(rv.json['results']) == 2
-        assert set(map(lambda d: d['id'], rv.json['results'])) == set([q1.id, q2.id])
+        assert set([result['id'] for result in rv.json['results']]) == set([q1.id, q2.id])
 
 
 class TestQueryListResourcePost(BaseTestCase):
@@ -228,14 +233,14 @@ class TestQueryListResourcePost(BaseTestCase):
 
         rv = self.make_request('post', '/api/queries', data=query_data)
 
-        self.assertEquals(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 200)
         self.assertDictContainsSubset(query_data, rv.json)
-        self.assertEquals(rv.json['user']['id'], self.factory.user.id)
+        self.assertEqual(rv.json['user']['id'], self.factory.user.id)
         self.assertIsNotNone(rv.json['api_key'])
         self.assertIsNotNone(rv.json['query_hash'])
 
         query = models.Query.query.get(rv.json['id'])
-        self.assertEquals(len(list(query.visualizations)), 1)
+        self.assertEqual(len(list(query.visualizations)), 1)
         self.assertTrue(query.is_draft)
 
     def test_allows_association_with_authorized_dropdown_queries(self):
@@ -251,6 +256,11 @@ class TestQueryListResourcePost(BaseTestCase):
             'data_source_id': self.factory.data_source.id,
             'options': {
                 'parameters': [{
+                    'name': 'foo',
+                    'type': 'query',
+                    'queryId': other_query.id
+                }, {
+                    'name': 'bar',
                     'type': 'query',
                     'queryId': other_query.id
                 }]
@@ -310,7 +320,7 @@ class TestQueryArchiveResourceGet(BaseTestCase):
         rv = self.make_request('get', '/api/queries/archive')
 
         assert len(rv.json['results']) == 2
-        assert set(map(lambda d: d['id'], rv.json['results'])) == set([q1.id, q2.id])
+        assert set([result['id'] for result in rv.json['results']]) == set([q1.id, q2.id])
 
     def test_search_term(self):
         q1 = self.factory.create_query(name="Sales", is_archived=True)
@@ -319,7 +329,7 @@ class TestQueryArchiveResourceGet(BaseTestCase):
 
         rv = self.make_request('get', '/api/queries/archive?q=sales')
         assert len(rv.json['results']) == 2
-        assert set(map(lambda d: d['id'], rv.json['results'])) == set([q1.id, q2.id])
+        assert set([result['id'] for result in rv.json['results']]) == set([q1.id, q2.id])
 
 
 class QueryRefreshTest(BaseTestCase):
@@ -334,14 +344,14 @@ class QueryRefreshTest(BaseTestCase):
         self.assertEqual(200, response.status_code)
 
     def test_refresh_of_query_with_parameters(self):
-        self.query.query_text = u"SELECT {{param}}"
+        self.query.query_text = "SELECT {{param}}"
         db.session.add(self.query)
 
         response = self.make_request('post', "{}?p_param=1".format(self.path))
         self.assertEqual(200, response.status_code)
 
     def test_refresh_of_query_with_parameters_without_parameters(self):
-        self.query.query_text = u"SELECT {{param}}"
+        self.query.query_text = "SELECT {{param}}"
         db.session.add(self.query)
 
         response = self.make_request('post', "{}".format(self.path))
@@ -361,6 +371,55 @@ class QueryRefreshTest(BaseTestCase):
 
         response = self.make_request('post', '{}?api_key={}'.format(self.path, self.factory.user.api_key), user=False)
         self.assertEqual(200, response.status_code)
+
+
+class TestQueryRegenerateApiKey(BaseTestCase):
+    def test_non_admin_cannot_regenerate_api_key_of_other_user(self):
+        query_creator = self.factory.create_user()
+        query = self.factory.create_query(user=query_creator)
+        other_user = self.factory.create_user()
+        orig_api_key = query.api_key
+
+        rv = self.make_request('post', "/api/queries/{}/regenerate_api_key".format(query.id), user=other_user)
+        self.assertEqual(rv.status_code, 403)
+
+        reloaded_query = models.Query.query.get(query.id)
+        self.assertEqual(orig_api_key, reloaded_query.api_key)
+
+    def test_admin_can_regenerate_api_key_of_other_user(self):
+        query_creator = self.factory.create_user()
+        query = self.factory.create_query(user=query_creator)
+        admin_user = self.factory.create_admin()
+        orig_api_key = query.api_key
+
+        rv = self.make_request('post', "/api/queries/{}/regenerate_api_key".format(query.id), user=admin_user)
+        self.assertEqual(rv.status_code, 200)
+
+        reloaded_query = models.Query.query.get(query.id)
+        self.assertNotEqual(orig_api_key, reloaded_query.api_key)
+
+    def test_admin_can_regenerate_api_key_of_myself(self):
+        query_creator = self.factory.create_user()
+        admin_user = self.factory.create_admin()
+        query = self.factory.create_query(user=query_creator)
+        orig_api_key = query.api_key
+
+        rv = self.make_request('post', "/api/queries/{}/regenerate_api_key".format(query.id), user=admin_user)
+        self.assertEqual(rv.status_code, 200)
+
+        updated_query = models.Query.query.get(query.id)
+        self.assertNotEqual(orig_api_key, updated_query.api_key)
+
+    def test_user_can_regenerate_api_key_of_myself(self):
+        user = self.factory.create_user()
+        query = self.factory.create_query(user=user)
+        orig_api_key = query.api_key
+
+        rv = self.make_request('post', "/api/queries/{}/regenerate_api_key".format(query.id), user=user)
+        self.assertEqual(rv.status_code, 200)
+
+        updated_query = models.Query.query.get(query.id)
+        self.assertNotEqual(orig_api_key, updated_query.api_key)
 
 
 class TestQueryForkResourcePost(BaseTestCase):

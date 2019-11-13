@@ -6,8 +6,9 @@ import mock
 
 from tests import BaseTestCase
 from redash import redis_connection, models
+from redash.utils import json_dumps
 from redash.query_runner.pg import PostgreSQL
-from redash.tasks.queries import QueryExecutionError, enqueue_query, execute_query
+from redash.tasks.queries.execution import QueryExecutionError, enqueue_query, execute_query
 
 
 FakeResult = namedtuple('FakeResult', 'id')
@@ -28,6 +29,16 @@ class TestEnqueueTask(BaseTestCase):
 
         self.assertEqual(1, execute_query.apply_async.call_count)
 
+    @mock.patch('redash.settings.dynamic_settings.query_time_limit', return_value=60)
+    def test_limits_query_time(self, _):
+        query = self.factory.create_query()
+        execute_query.apply_async = mock.MagicMock(side_effect=gen_hash)
+
+        enqueue_query(query.query_text, query.data_source, query.user_id, False, query, {'Username': 'Arik', 'Query ID': query.id})
+
+        _, kwargs = execute_query.apply_async.call_args
+        self.assertEqual(60, kwargs.get('soft_time_limit'))
+
     def test_multiple_enqueue_of_different_query(self):
         query = self.factory.create_query()
         execute_query.apply_async = mock.MagicMock(side_effect=gen_hash)
@@ -47,11 +58,12 @@ class QueryExecutorTests(BaseTestCase):
         """
         cm = mock.patch("celery.app.task.Context.delivery_info", {'routing_key': 'test'})
         with cm, mock.patch.object(PostgreSQL, "run_query") as qr:
-            qr.return_value = ([1, 2], None)
+            query_result_data = {"columns": [], "rows": []}
+            qr.return_value = (json_dumps(query_result_data), None)
             result_id = execute_query("SELECT 1, 2", self.factory.data_source.id, {})
             self.assertEqual(1, qr.call_count)
             result = models.QueryResult.query.get(result_id)
-            self.assertEqual(result.data, '{1,2}')
+            self.assertEqual(result.data, query_result_data)
 
     def test_success_scheduled(self):
         """
