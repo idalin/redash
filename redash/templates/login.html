@@ -6,35 +6,44 @@
 <div class="fixed-width-page">
   <div class="bg-white tiled">
     {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        {% for message in messages %}
-          <div class="alert alert-danger" role="alert" data-test="ErrorMessage">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
+    {% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-danger" role="alert" data-test="ErrorMessage">{{ message }}</div>
+    {% endfor %}
+    {% endif %}
     {% endwith %}
 
     {% if show_google_openid %}
-      <a href="{{ google_auth_url }}" class="login-button btn btn-default btn-block">
-        <img src="/static/images/google_logo.svg">
-        Login with Google
-      </a>
+    <a href="{{ google_auth_url }}" class="login-button btn btn-default btn-block">
+      <img src="/static/images/google_logo.svg">
+      Login with Google
+    </a>
+    {% endif %}
+    {% if show_generic_oauth %}
+    <a href="{{ generic_oauth_url }}" class="login-button btn btn-default btn-block">
+      <img src="/static/images/google_logo.svg">
+      Login with generic oauth
+    </a>
     {% endif %}
 
     {% if show_saml_login %}
-      <a href="{{ url_for('saml_auth.sp_initiated', org_slug=org_slug, next=next) }}" class="login-button btn btn-default btn-block">SAML Login</a>
+    <a href="{{ url_for('saml_auth.sp_initiated', org_slug=org_slug, next=next) }}"
+      class="login-button btn btn-default btn-block">SAML Login</a>
     {% endif %}
 
     {% if show_remote_user_login %}
-      <a href="{{ url_for('remote_user_auth.login', org_slug=org_slug, next=next) }}" class="login-button btn btn-default btn-block">Remote User Login</a>
+    <a href="{{ url_for('remote_user_auth.login', org_slug=org_slug, next=next) }}"
+      class="login-button btn btn-default btn-block">Remote User Login</a>
     {% endif %}
 
     {% if show_ldap_login %}
-      <a href="{{ url_for('ldap_auth.login', org_slug=org_slug, next=next) }}" class="login-button btn btn-default btn-block">LDAP/SSO Login</a>
+    <a href="{{ url_for('ldap_auth.login', org_slug=org_slug, next=next) }}"
+      class="login-button btn btn-default btn-block">LDAP/SSO Login</a>
     {% endif %}
 
     {% if show_password_login %}
     {% if show_google_openid or show_saml_login or show_remote_user_login or show_ldap_login %}
-      <hr>
+    <hr>
     {% endif %}
 
     <form role="form" method="post" name="login">
@@ -51,9 +60,9 @@
       <button type="submit" class="btn btn-primary btn-block m-t-25">Log In</button>
     </form>
     {% if not hide_forgot_password %}
-      <div class="m-t-25">
-        <a href="{{ url_for("redash.forgot_password", org_slug=org_slug) }}">I forgot my password</a>
-      </div>
+    <div class="m-t-25">
+      <a href="{{ url_for("redash.forgot_password", org_slug=org_slug) }}">I forgot my password</a>
+    </div>
     {% endif %}
     {% endif %}
   </div>
