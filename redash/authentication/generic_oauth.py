@@ -31,7 +31,7 @@ def generic_remote_app():
 
 
 def get_user_profile(access_token):
-    headers = {'Authorization': 'OAuth {}'.format(access_token)}
+    headers = {'Authorization': 'Bearer {}'.format(access_token)}
     response = requests.get(settings.GENERIC_OAUTH_API_URL, headers=headers)
 
     if response.status_code == 401:
@@ -67,14 +67,15 @@ def org_login(org_slug):
 def login():
     callback = url_for('.callback', _external=True)
     next_path = request.args.get('next', url_for("redash.index", org_slug=session.get('org_slug')))
-    logger.debug("Callback url: %s", callback)
-    logger.debug("Next is: %s", next_path)
+    logger.info("Callback url: %s", callback)
+    logger.info("Next is: %s", next_path)
     return generic_remote_app().authorize(callback=callback, state=next_path)
 
 
 @blueprint.route('/oauth/generic_callback', endpoint="callback")
 def authorized():
     resp = generic_remote_app().authorized_response()
+    logger.info("resp is %s",resp)
     access_token = resp['access_token']
 
     if access_token is None:

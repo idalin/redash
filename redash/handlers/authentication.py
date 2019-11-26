@@ -179,6 +179,7 @@ def login(org_slug=None):
             flash("Wrong email or password.")
 
     google_auth_url = get_google_auth_url(next_path)
+    generic_oauth_url= get_generic_oauth_url(next_path)
 
     return render_template("login.html",
                            org_slug=org_slug,
@@ -186,6 +187,8 @@ def login(org_slug=None):
                            email=request.form.get('email', ''),
                            show_google_openid=settings.GOOGLE_OAUTH_ENABLED,
                            google_auth_url=google_auth_url,
+                           show_generic_oauth=settings.GENERIC_OAUTH_ENABLE,
+                           generic_oauth_url=generic_oauth_url,
                            show_password_login=current_org.get_setting('auth_password_login_enabled'),
                            show_saml_login=current_org.get_setting('auth_saml_enabled'),
                            show_remote_user_login=settings.REMOTE_USER_LOGIN_ENABLED,
